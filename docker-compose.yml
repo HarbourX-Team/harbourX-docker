@@ -1,0 +1,105 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: harbourx-postgres
+    environment:
+      POSTGRES_DB: harbourx
+      POSTGRES_USER: harbourx
+      POSTGRES_PASSWORD: harbourx_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"  # Use 5433 to avoid conflict with local PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - harbourx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harbourx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend Service (Spring Boot)
+  backend:
+    build:
+      context: ../HarbourX-Backend
+      dockerfile: Dockerfile
+    container_name: harbourx-backend
+    environment:
+      - SPRING_PROFILES_ACTIVE=base,dev
+      - DB_IP=postgres
+      - DB_PORT=5432
+      - DB_USER=harbourx
+      - DB_PASS=harbourx_password
+      - JWT_SECRET=${JWT_SECRET:-aVeryLongAndSecureSecretKeyThatIsAtLeast256BitsLongForHS256}
+      - FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - harbourx-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # AI Module Service (Node.js)
+  ai-module:
+    build:
+      context: ../AI-Module
+      dockerfile: Dockerfile
+    container_name: harbourx-ai-module
+    env_file:
+      - ../AI-Module/.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    volumes:
+      - ai_module_data:/app/public
+    networks:
+      - harbourx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Frontend Service (React + Nginx)
+  frontend:
+    build:
+      context: ../HarbourX-Frontend
+      dockerfile: app/src/infrastructure/docker/Dockerfile
+    container_name: harbourx-frontend
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - ai-module
+    networks:
+      - harbourx-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  ai_module_data:
+    driver: local
+
+networks:
+  harbourx-network:
+    driver: bridge
+

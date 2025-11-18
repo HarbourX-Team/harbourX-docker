@@ -1,0 +1,100 @@
+services:
+  # PostgreSQL Database (same as production)
+  postgres:
+    image: postgres:16-alpine
+    container_name: harbourx-postgres-dev
+    environment:
+      POSTGRES_DB: harbourx
+      POSTGRES_USER: harbourx
+      POSTGRES_PASSWORD: harbourx_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"  # Use 5433 to avoid conflict with local PostgreSQL
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    networks:
+      - harbourx-network-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harbourx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend Service (Development with hot reload)
+  backend:
+    build:
+      context: ../HarbourX-Backend
+      dockerfile: Dockerfile
+    container_name: harbourx-backend-dev
+    environment:
+      - SPRING_PROFILES_ACTIVE=base,dev
+      - DB_IP=postgres
+      - DB_PORT=5432
+      - DB_USER=harbourx
+      - DB_PASS=harbourx_password
+      - JWT_SECRET=${JWT_SECRET:-aVeryLongAndSecureSecretKeyThatIsAtLeast256BitsLongForHS256}
+      - FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - harbourx-network-dev
+    restart: unless-stopped
+
+  # AI Module Service (Development with hot reload)
+  ai-module:
+    build:
+      context: ./AI-Module
+      dockerfile: Dockerfile
+    container_name: harbourx-ai-module-dev
+    env_file:
+      - ../AI-Module/.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../AI-Module:/app
+      - /app/node_modules
+      - ai_module_data_dev:/app/public
+    networks:
+      - harbourx-network-dev
+    command: sh -c "pnpm install && pnpm dev:api"
+    restart: unless-stopped
+
+  # Frontend Service (Development with hot reload)
+  frontend:
+    build:
+      context: ../HarbourX-Frontend
+      dockerfile: app/src/infrastructure/docker/Dockerfile.dev
+    container_name: harbourx-frontend-dev
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../HarbourX-Frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+      - ai-module
+    networks:
+      - harbourx-network-dev
+    restart: unless-stopped
+
+volumes:
+  postgres_data_dev:
+    driver: local
+  ai_module_data_dev:
+    driver: local
+
+networks:
+  harbourx-network-dev:
+    driver: bridge
+
