@@ -25,7 +25,7 @@ services:
   backend:
     build:
       context: ../HarbourX-Backend
-      dockerfile: Dockerfile
+      dockerfile: dockerfiles/backend/Dockerfile
     container_name: harbourx-backend-dev
     environment:
       - SPRING_PROFILES_ACTIVE=base,dev
@@ -47,8 +47,8 @@ services:
   # AI Module Service (Development with hot reload)
   ai-module:
     build:
-      context: ./AI-Module
-      dockerfile: Dockerfile
+      context: ../AI-Module
+      dockerfile: dockerfiles/ai-module/Dockerfile
     container_name: harbourx-ai-module-dev
     env_file:
       - ../AI-Module/.env
@@ -70,8 +70,8 @@ services:
   # Frontend Service (Development with hot reload)
   frontend:
     build:
-      context: ../HarbourX-Frontend
-      dockerfile: app/src/infrastructure/docker/Dockerfile.dev
+      context: .
+      dockerfile: dockerfiles/frontend/Dockerfile.dev
     container_name: harbourx-frontend-dev
     environment:
       - NODE_ENV=development
