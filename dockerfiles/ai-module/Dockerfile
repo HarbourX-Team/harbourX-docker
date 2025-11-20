@@ -38,7 +38,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
 
 # Verify dist/index.js exists
-RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && ls -la /app/dist/ && exit 1)
+RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && echo "Contents of /app/dist:" && ls -la /app/dist/ 2>/dev/null || echo "dist directory does not exist" && exit 1)
 
 # Ensure the service listens on all interfaces inside the container
 ENV HOST=0.0.0.0

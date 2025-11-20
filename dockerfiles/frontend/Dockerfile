@@ -8,14 +8,17 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Install ALL dependencies (including dev dependencies for build)
-COPY ../HarbourX-Frontend/package.json ../HarbourX-Frontend/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY ../HarbourX-Frontend .
+COPY . .
+
+# Copy nginx.conf to builder stage so it's available for runner stage
+COPY app/src/infrastructure/docker/nginx.conf /tmp/nginx.conf
 
 # Build the application
 RUN npm run build
@@ -29,10 +32,11 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy logo file to root directory for favicon (index.html references /Harbour-X-Logo.png)
 # Vite builds it to assets/ with hash, so we need to copy it to root
-RUN find /usr/share/nginx/html/assets -name "Harbour-X-Logo*.png" -exec cp {} /usr/share/nginx/html/Harbour-X-Logo.png \;
+# Use || true to avoid failure if file doesn't exist
+RUN find /usr/share/nginx/html/assets -name "Harbour-X-Logo*.png" -exec cp {} /usr/share/nginx/html/Harbour-X-Logo.png \; || true
 
-# Copy custom nginx configuration
-COPY dockerfiles/frontend/nginx.conf /etc/nginx/nginx.conf
+# Copy custom nginx configuration from builder stage
+COPY --from=builder /tmp/nginx.conf /etc/nginx/nginx.conf
 
 # Remove default nginx config that conflicts with our custom config
 RUN rm -f /etc/nginx/conf.d/default.conf
