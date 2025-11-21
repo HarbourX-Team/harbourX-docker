@@ -50,11 +50,13 @@ HarbourX 统一管理脚本
   docker:
     start         启动 Docker 服务（生产环境）
     start:dev     启动 Docker 服务（开发环境）
-    stop          停止 Docker 服务
+    stop          停止 Docker 服务（仅 HarbourX）
+    stop:all      停止所有 Docker 容器
     restart       重启 Docker 服务
     logs [service] 查看服务日志（可选服务名）
     status        查看服务状态
-    clean         清理所有 Docker 资源（镜像、容器、卷）
+    clean         清理所有 Docker 资源（镜像、容器、卷，需要确认）
+    clean:all     快速清理所有 Docker 资源（无需确认，谨慎使用）
 
   deploy:
     local         本地部署（检查环境、构建并启动所有服务）
@@ -80,6 +82,10 @@ HarbourX 统一管理脚本
 示例:
   ./harbourx.sh docker start
   ./harbourx.sh docker start:dev
+  ./harbourx.sh docker stop          # 停止 HarbourX 服务
+  ./harbourx.sh docker stop:all     # 停止所有 Docker 容器
+  ./harbourx.sh docker clean         # 清理 Docker 资源（需确认）
+  ./harbourx.sh docker clean:all    # 快速清理所有 Docker 资源
   ./harbourx.sh docker logs backend
   ./harbourx.sh deploy local         # 本地完整部署
   ./harbourx.sh deploy deploy        # 部署到 EC2
@@ -125,7 +131,7 @@ docker_start() {
 }
 
 docker_stop() {
-    echo_info "停止 Docker 服务..."
+    echo_info "停止 Docker 服务（仅 HarbourX）..."
     
     # 首先尝试使用 docker compose down
     docker compose down --remove-orphans 2>/dev/null || true
@@ -150,6 +156,34 @@ docker_stop() {
     else
         echo_warn "以下容器仍在运行:"
         echo "$REMAINING"
+    fi
+}
+
+docker_stop_all() {
+    echo_warn "停止所有 Docker 容器..."
+    
+    # 获取所有运行中的容器
+    RUNNING_CONTAINERS=$(docker ps -q 2>/dev/null || true)
+    
+    if [ -z "$RUNNING_CONTAINERS" ]; then
+        echo_info "没有运行中的容器"
+        return 0
+    fi
+    
+    CONTAINER_COUNT=$(echo "$RUNNING_CONTAINERS" | wc -l | tr -d ' ')
+    echo_info "发现 $CONTAINER_COUNT 个运行中的容器"
+    
+    # 停止所有容器
+    echo_info "正在停止所有容器..."
+    docker stop $RUNNING_CONTAINERS 2>/dev/null || true
+    
+    # 检查结果
+    REMAINING=$(docker ps -q 2>/dev/null || true)
+    if [ -z "$REMAINING" ]; then
+        echo_info "✅ 所有容器已停止"
+    else
+        echo_warn "以下容器仍在运行:"
+        docker ps --format "table {{.Names}}\t{{.Status}}"
     fi
 }
 
@@ -225,6 +259,51 @@ docker_clean() {
     docker system prune -a --volumes -f
     
     echo_info "清理完成！"
+}
+
+docker_clean_all() {
+    echo_error "⚠️  警告：这将删除所有 Docker 资源（容器、镜像、卷、网络）！"
+    echo_error "⚠️  此操作不可恢复！"
+    echo ""
+    
+    # 显示当前资源统计
+    echo_info "当前 Docker 资源统计："
+    docker system df
+    
+    echo ""
+    echo_warn "即将执行以下操作："
+    echo "  1. 停止所有运行中的容器"
+    echo "  2. 删除所有容器"
+    echo "  3. 删除所有镜像"
+    echo "  4. 删除所有卷"
+    echo "  5. 删除所有未使用的网络"
+    echo "  6. 清理构建缓存"
+    echo ""
+    
+    # 即使快速模式也等待 3 秒
+    echo_warn "3 秒后开始清理..."
+    sleep 3
+    
+    echo_info "停止所有容器..."
+    docker stop $(docker ps -aq) 2>/dev/null || true
+    
+    echo_info "删除所有容器..."
+    docker rm $(docker ps -aq) 2>/dev/null || true
+    
+    echo_info "删除所有镜像..."
+    docker rmi $(docker images -aq) -f 2>/dev/null || true
+    
+    echo_info "删除所有卷..."
+    docker volume rm $(docker volume ls -q) 2>/dev/null || true
+    
+    echo_info "清理 Docker 系统（包括未使用的网络和构建缓存）..."
+    docker system prune -a --volumes -f
+    
+    echo ""
+    echo_info "✅ 清理完成！"
+    echo ""
+    echo_info "清理后的资源统计："
+    docker system df
 }
 
 # 本地部署命令
@@ -748,6 +827,9 @@ main() {
                 stop)
                     docker_stop
                     ;;
+                stop:all)
+                    docker_stop_all
+                    ;;
                 restart)
                     docker_restart "$arg1"
                     ;;
@@ -759,6 +841,9 @@ main() {
                     ;;
                 clean)
                     docker_clean
+                    ;;
+                clean:all)
+                    docker_clean_all
                     ;;
                 *)
                     echo_error "未知的 docker 子命令: $subcommand"
