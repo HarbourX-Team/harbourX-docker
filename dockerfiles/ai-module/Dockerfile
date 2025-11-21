@@ -2,6 +2,7 @@
 
 # Stage 1: Install dependencies and build the TypeScript project
 FROM node:20-alpine AS build
+ARG AI_MODULE_DIR=AI-Module
 WORKDIR /app
 
 # Install pnpm via corepack and prepare dependencies
@@ -10,15 +11,16 @@ ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 
 # Copy dependency files first to leverage Docker layer caching
-COPY package.json pnpm-lock.yaml ./
+COPY ${AI_MODULE_DIR}/package.json ${AI_MODULE_DIR}/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Copy the remaining project files and build
-COPY . .
+COPY ${AI_MODULE_DIR} .
 RUN pnpm build
 
 # Stage 2: Create a lightweight runtime image
 FROM node:20-alpine AS runtime
+ARG AI_MODULE_DIR=AI-Module
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -27,7 +29,7 @@ ENV PNPM_HOME=/root/.local/share/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
+COPY ${AI_MODULE_DIR}/package.json ${AI_MODULE_DIR}/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 # Install runtime utilities needed for health checks

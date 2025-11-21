@@ -24,8 +24,10 @@ services:
   # Backend Service (Development with hot reload)
   backend:
     build:
-      context: ../HarbourX-Backend
-      dockerfile: dockerfiles/backend/Dockerfile
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/backend/Dockerfile
+      args:
+        BACKEND_DIR: ${BACKEND_DIR:-HarbourX-Backend}
     container_name: harbourx-backend-dev
     environment:
       - SPRING_PROFILES_ACTIVE=base,dev
@@ -47,39 +49,46 @@ services:
   # AI Module Service (Development with hot reload)
   ai-module:
     build:
-      context: ../AI-Module
-      dockerfile: dockerfiles/ai-module/Dockerfile
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/ai-module/Dockerfile
+      args:
+        AI_MODULE_DIR: ${AI_MODULE_DIR:-AI-Module}
     container_name: harbourx-ai-module-dev
     env_file:
-      - ../AI-Module/.env
+      - ${PROJECT_ROOT:-..}/${AI_MODULE_DIR:-AI-Module}/.env
     environment:
       - HOST=0.0.0.0
       - PORT=3000
       - NODE_ENV=development
+      - CI=true
     ports:
       - "3000:3000"
     volumes:
-      - ../AI-Module:/app
+      - ${PROJECT_ROOT:-..}/${AI_MODULE_DIR:-AI-Module}:/app
       - /app/node_modules
       - ai_module_data_dev:/app/public
     networks:
       - harbourx-network-dev
-    command: sh -c "pnpm install && pnpm dev:api"
+    command: sh -c "CI=true pnpm install && pnpm dev:api"
     restart: unless-stopped
 
   # Frontend Service (Development with hot reload)
   frontend:
     build:
-      context: .
-      dockerfile: dockerfiles/frontend/Dockerfile.dev
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/frontend/Dockerfile.dev
+      args:
+        FRONTEND_DIR: ${FRONTEND_DIR:-HarbourX-Frontend}
     container_name: harbourx-frontend-dev
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
+      - VITE_BACKEND_URL=http://backend:8080
+      - VITE_AI_MODULE_URL=http://ai-module:3000
     ports:
       - "3001:3001"
     volumes:
-      - ../HarbourX-Frontend:/app
+      - ${PROJECT_ROOT:-..}/${FRONTEND_DIR:-HarbourX-Frontend}:/app
       - /app/node_modules
     depends_on:
       - backend

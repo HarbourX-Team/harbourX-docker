@@ -1,0 +1,24 @@
+# Development Dockerfile for React Frontend
+FROM node:20-alpine
+ARG FRONTEND_DIR=HarbourX-Frontend
+
+# Install dependencies
+RUN apk add --no-cache libc6-compat
+
+WORKDIR /app
+
+# Copy package files
+COPY ${FRONTEND_DIR}/package.json ${FRONTEND_DIR}/package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the application
+COPY ${FRONTEND_DIR} .
+
+# Expose port 3001 (Vite dev server)
+EXPOSE 3001
+
+# Start development server with host binding
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
