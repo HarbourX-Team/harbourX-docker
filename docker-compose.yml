@@ -4,9 +4,9 @@ services:
     image: postgres:16-alpine
     container_name: harbourx-postgres
     environment:
-      POSTGRES_DB: harbourx
-      POSTGRES_USER: harbourx
-      POSTGRES_PASSWORD: harbourx_password
+      POSTGRES_DB: ${POSTGRES_DB:-harbourx}
+      POSTGRES_USER: ${POSTGRES_USER:-harbourx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harbourx_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5433:5432" # Use 5433 to avoid conflict with local PostgreSQL
@@ -15,26 +15,41 @@ services:
     networks:
       - harbourx-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U harbourx"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-harbourx}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Backend Service (Spring Boot)
   backend:
     build:
-      context: ../HarbourX-Backend
-      dockerfile: ../harbourX-docker/dockerfiles/backend/Dockerfile
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/backend/Dockerfile
+      args:
+        BACKEND_DIR: ${BACKEND_DIR:-HarbourX-Backend}
     container_name: harbourx-backend
     environment:
       - SPRING_PROFILES_ACTIVE=base,dev
       - DB_IP=postgres
-      - DB_PORT=5432
-      - DB_USER=harbourx
-      - DB_PASS=harbourx_password
-      - JWT_SECRET=${JWT_SECRET:-aVeryLongAndSecureSecretKeyThatIsAtLeast256BitsLongForHS256}
-      - FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${POSTGRES_USER:-harbourx}
+      - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_ALLOWED_ORIGINS=${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3001,http://localhost:80,http://frontend:80}
     ports:
       - "8080:8080"
     depends_on:
@@ -53,15 +68,32 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 30s
 
   # AI Module Service (Node.js)
   ai-module:
     build:
-      context: ../AI-Module
-      dockerfile: ../harbourX-docker/dockerfiles/ai-module/Dockerfile
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/ai-module/Dockerfile
+      args:
+        AI_MODULE_DIR: ${AI_MODULE_DIR:-AI-Module}
     container_name: harbourx-ai-module
     env_file:
-      - ../AI-Module/.env
+      - ${PROJECT_ROOT:-..}/${AI_MODULE_DIR:-AI-Module}/.env
     environment:
       - HOST=0.0.0.0
       - PORT=3000
@@ -87,12 +119,30 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 30s
 
   # Frontend Service (React + Nginx)
   frontend:
     build:
-      context: ../HarbourX-Frontend
-      dockerfile: ../harbourX-docker/dockerfiles/frontend/Dockerfile
+      context: ${PROJECT_ROOT:-..}
+      dockerfile: ${HARBOURX_DIR:-harbourx}/dockerfiles/frontend/Dockerfile
+      args:
+        FRONTEND_DIR: ${FRONTEND_DIR:-HarbourX-Frontend}
+        HARBOURX_DIR: ${HARBOURX_DIR:-harbourx}
     container_name: harbourx-frontend
     environment:
       - NODE_ENV=production
@@ -104,6 +154,21 @@ services:
     networks:
       - harbourx-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 10s
 
 volumes:
   postgres_data:

@@ -4,9 +4,9 @@ services:
     image: postgres:16-alpine
     container_name: harbourx-postgres-dev
     environment:
-      POSTGRES_DB: harbourx
-      POSTGRES_USER: harbourx
-      POSTGRES_PASSWORD: harbourx_password
+      POSTGRES_DB: ${POSTGRES_DB:-harbourx}
+      POSTGRES_USER: ${POSTGRES_USER:-harbourx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harbourx_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5433:5432"  # Use 5433 to avoid conflict with local PostgreSQL
@@ -15,11 +15,24 @@ services:
     networks:
       - harbourx-network-dev
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U harbourx"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-harbourx}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Backend Service (Development with hot reload)
   backend:
@@ -32,11 +45,11 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=base,dev
       - DB_IP=postgres
-      - DB_PORT=5432
-      - DB_USER=harbourx
-      - DB_PASS=harbourx_password
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${POSTGRES_USER:-harbourx}
+      - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
       - JWT_SECRET=${JWT_SECRET:-aVeryLongAndSecureSecretKeyThatIsAtLeast256BitsLongForHS256}
-      - FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
+      - FRONTEND_ALLOWED_ORIGINS=${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3001,http://localhost:80,http://frontend:80}
     ports:
       - "8080:8080"
     depends_on:
@@ -45,6 +58,21 @@ services:
     networks:
       - harbourx-network-dev
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 30s
 
   # AI Module Service (Development with hot reload)
   ai-module:
@@ -71,6 +99,21 @@ services:
       - harbourx-network-dev
     command: sh -c "CI=true pnpm install && pnpm dev:api"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 30s
 
   # Frontend Service (Development with hot reload)
   frontend:
@@ -96,6 +139,21 @@ services:
     networks:
       - harbourx-network-dev
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 10s
 
 volumes:
   postgres_data_dev:

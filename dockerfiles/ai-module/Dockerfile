@@ -24,20 +24,33 @@ ARG AI_MODULE_DIR=AI-Module
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 -G nodejs
+
 # Install pnpm and only production dependencies
-ENV PNPM_HOME=/root/.local/share/pnpm
+ENV PNPM_HOME=/home/nodejs/.local/share/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 
-COPY ${AI_MODULE_DIR}/package.json ${AI_MODULE_DIR}/pnpm-lock.yaml ./
+# Change ownership of pnpm directory
+RUN mkdir -p /home/nodejs/.local/share/pnpm && \
+    chown -R nodejs:nodejs /home/nodejs
+
+# Copy package files and install as nodejs user
+COPY --chown=nodejs:nodejs ${AI_MODULE_DIR}/package.json ${AI_MODULE_DIR}/pnpm-lock.yaml ./
+USER nodejs
 RUN pnpm install --frozen-lockfile --prod
 
+# Switch back to root to install system packages
+USER root
+
 # Install runtime utilities needed for health checks
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl wget
 
 # Copy the compiled application and static assets from the builder
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/public ./public
+COPY --from=build --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=build --chown=nodejs:nodejs /app/public ./public
 
 # Verify dist/index.js exists
 RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && echo "Contents of /app/dist:" && ls -la /app/dist/ 2>/dev/null || echo "dist directory does not exist" && exit 1)
@@ -45,6 +58,9 @@ RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && ech
 # Ensure the service listens on all interfaces inside the container
 ENV HOST=0.0.0.0
 ENV PORT=3000
+
+# Switch to non-root user
+USER nodejs
 
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

@@ -25,7 +25,13 @@ RUN npm run build
 
 # Production image, copy all the files and run next
 FROM nginx:alpine AS runner
+ARG FRONTEND_DIR=HarbourX-Frontend
+ARG HARBOURX_DIR=harbourx
 WORKDIR /usr/share/nginx/html
+
+# Note: Nginx main process runs as root (required for binding port 80)
+# Worker processes run as nginx user (configured in nginx.conf)
+# This is the standard and secure approach for Nginx in containers
 
 # Copy the built application
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -41,8 +47,13 @@ COPY --from=builder /tmp/nginx.conf /etc/nginx/nginx.conf
 # Remove default nginx config that conflicts with our custom config
 RUN rm -f /etc/nginx/conf.d/default.conf
 
+# Set proper permissions for nginx user (worker processes)
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx
+
 # Expose port 80
 EXPOSE 80
 
-# Start nginx
+# Start nginx (main process as root, workers as nginx user)
 CMD ["nginx", "-g", "daemon off;"]
