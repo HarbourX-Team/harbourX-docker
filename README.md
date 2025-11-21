@@ -58,22 +58,45 @@ docker compose up -d
 
 ### 环境变量配置
 
-#### 1. 项目路径配置（可选）
+> ⚠️ **重要**：生产环境部署前，必须配置以下环境变量以确保安全性！
 
-如果项目结构不同，可以创建 `.env` 文件来自定义路径：
+#### 1. 创建 .env 文件（生产环境必需）
 
 ```bash
 # 复制示例文件
 cp .env.example .env
 
-# 编辑 .env 文件，设置你的项目路径
+# 编辑 .env 文件，设置所有必需的配置
+```
+
+#### 2. 生产环境必需配置
+
+**必须设置以下环境变量（生产环境）：**
+
+```bash
+# 项目路径配置（如果项目结构不同）
 PROJECT_ROOT=..                    # 项目根目录（相对于 harbourX 文件夹）
 BACKEND_DIR=HarbourX-Backend      # Backend 目录名
 FRONTEND_DIR=HarbourX-Frontend    # Frontend 目录名
 AI_MODULE_DIR=AI-Module           # AI-Module 目录名
+HARBOURX_DIR=harbourx             # HarbourX 目录名
+
+# 数据库配置（生产环境必须更改默认密码！）
+POSTGRES_DB=harbourx
+POSTGRES_USER=harbourx
+POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD_IN_PRODUCTION  # ⚠️ 必须更改！
+DB_PORT=5432
+
+# JWT Secret（生产环境必须设置！）
+# 生成安全的 JWT Secret（至少 256 位）：
+# openssl rand -base64 32
+JWT_SECRET=CHANGE_THIS_JWT_SECRET_IN_PRODUCTION  # ⚠️ 必须更改！
+
+# Frontend Allowed Origins（根据实际情况调整）
+FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
 ```
 
-#### 2. AI-Module 环境变量
+#### 3. AI-Module 环境变量
 
 确保 `${PROJECT_ROOT}/${AI_MODULE_DIR}/.env` 文件（默认 `../AI-Module/.env`）包含必要的 API keys：
 
@@ -84,13 +107,24 @@ PORT=3000
 HOST=0.0.0.0
 ```
 
-#### 2. JWT Secret（可选）
-
-在 `docker-compose.yml` 中设置或使用 `.env` 文件：
+#### 4. 生成安全的 JWT Secret
 
 ```bash
-JWT_SECRET=your-super-secret-jwt-key
+# 方法 1：使用 OpenSSL（推荐）
+openssl rand -base64 32
+
+# 方法 2：使用 /dev/urandom
+head -c 32 /dev/urandom | base64
+
+# 将生成的字符串设置为 JWT_SECRET 环境变量
 ```
+
+> 💡 **提示**：JWT Secret 应该：
+>
+> - 至少 256 位（32 字节）
+> - 使用随机生成的字符串
+> - 不要使用可预测的值
+> - 在生产环境中定期轮换
 
 ---
 
@@ -571,18 +605,65 @@ docker compose logs ai-module
 
 ## 🔐 安全建议
 
-### 生产环境
+### ⚠️ 生产环境部署前检查清单
 
-1. **更改默认密码**：修改 `docker-compose.yml` 中的数据库密码
-2. **使用强 JWT Secret**：在 `.env` 文件中设置强随机字符串
+**在部署到生产环境之前，必须完成以下配置：**
+
+1. **✅ 创建 .env 文件**
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **✅ 生成并设置安全的 JWT Secret**
+
+   ```bash
+   # 生成安全的 JWT Secret（至少 256 位）
+   openssl rand -base64 32
+
+   # 将生成的字符串添加到 .env 文件
+   JWT_SECRET=<生成的随机字符串>
+   ```
+
+   > ⚠️ **重要**：不要使用默认的 JWT Secret！必须生成新的随机字符串。
+
+3. **✅ 更改数据库密码**
+
+   ```bash
+   # 在 .env 文件中设置强密码
+   POSTGRES_PASSWORD=<强密码>
+   ```
+
+   > ⚠️ **重要**：不要使用默认密码 `harbourx_password`！
+
+4. **✅ 配置所有必需的环境变量**
+
+   - `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`
+   - `JWT_SECRET`
+   - `FRONTEND_ALLOWED_ORIGINS`（根据实际域名调整）
+
+5. **✅ 验证 .env 文件**
+   - 确保所有敏感信息都已设置
+   - 确保没有使用默认值
+   - 确保 `.env` 文件在 `.gitignore` 中（不会被提交到版本控制）
+
+### 生产环境安全最佳实践
+
+1. **更改默认密码**：所有默认密码必须更改
+2. **使用强 JWT Secret**：使用 `openssl rand -base64 32` 生成
 3. **限制端口暴露**：只暴露必要的端口
 4. **使用 HTTPS**：配置反向代理（如 Nginx）和 SSL 证书
 5. **定期备份**：设置数据库自动备份
+6. **资源限制**：已配置 CPU 和内存限制（见 `docker-compose.yml`）
+7. **日志轮转**：已配置日志轮转，防止日志无限增长
+8. **非 root 用户**：所有服务以非 root 用户运行
 
 ### 环境变量安全
 
-- 不要将 `.env` 文件提交到版本控制
+- **不要将 `.env` 文件提交到版本控制**
 - 使用 Docker secrets 或外部密钥管理服务（如 AWS Secrets Manager）
+- 定期轮换敏感信息（JWT Secret、数据库密码等）
+- 使用不同的密码和密钥用于不同环境（开发、测试、生产）
 
 ---
 
