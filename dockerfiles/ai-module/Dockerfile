@@ -33,9 +33,13 @@ RUN pnpm install --frozen-lockfile --prod
 # Install runtime utilities needed for health checks
 RUN apk add --no-cache curl
 
-# Copy the compiled application and static assets from the builder
+# Copy the compiled application from the builder
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/public ./public
+
+# Create public directory structure for runtime file storage
+# This directory will be mounted as a volume in docker-compose
+# We create the structure here but don't copy data (it's runtime-only)
+RUN mkdir -p ./public/cases ./public/extract/case
 
 # Verify dist/index.js exists
 RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && echo "Contents of /app/dist:" && ls -la /app/dist/ 2>/dev/null || echo "dist directory does not exist" && exit 1)
