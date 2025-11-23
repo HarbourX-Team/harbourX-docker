@@ -79,7 +79,7 @@ PROJECT_ROOT=..                    # 项目根目录（相对于 harbourX 文件
 BACKEND_DIR=HarbourX-Backend      # Backend 目录名
 FRONTEND_DIR=HarbourX-Frontend    # Frontend 目录名
 AI_MODULE_DIR=AI-Module           # AI-Module 目录名
-DOCKER_DIR=harbourX-docker        # Docker 配置目录名
+DOCKER_DIR=harbourX              # Docker 配置目录名
 
 # 数据库配置（生产环境必须更改默认密码！）
 POSTGRES_DB=harbourx

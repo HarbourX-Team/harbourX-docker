@@ -40,7 +40,7 @@ services:
   backend:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX-docker}/dockerfiles/backend/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/backend/Dockerfile
       args:
         BACKEND_DIR: ${BACKEND_DIR:-HarbourX-Backend}
     container_name: harbourx-backend
@@ -90,7 +90,7 @@ services:
   ai-module:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX-docker}/dockerfiles/ai-module/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/ai-module/Dockerfile
       args:
         AI_MODULE_DIR: ${AI_MODULE_DIR:-AI-Module}
     container_name: harbourx-ai-module
@@ -141,10 +141,10 @@ services:
   frontend:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX-docker}/dockerfiles/frontend/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/frontend/Dockerfile
       args:
         FRONTEND_DIR: ${FRONTEND_DIR:-HarbourX-Frontend}
-        HARBOURX_DIR: ${DOCKER_DIR:-harbourX-docker}
+        HARBOURX_DIR: ${DOCKER_DIR:-harbourX}
     container_name: harbourx-frontend
     environment:
       - NODE_ENV=production
