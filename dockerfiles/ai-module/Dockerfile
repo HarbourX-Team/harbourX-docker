@@ -39,6 +39,9 @@ RUN corepack enable
 RUN mkdir -p /home/nodejs/.local/share/pnpm && \
     chown -R nodejs:nodejs /home/nodejs
 
+# Ensure /app directory is owned by nodejs before copying files
+RUN chown -R nodejs:nodejs /app
+
 # Copy package files and install as nodejs user
 COPY --chown=nodejs:nodejs ${AI_MODULE_DIR}/package.json ${AI_MODULE_DIR}/pnpm-lock.yaml ./
 USER nodejs
@@ -50,7 +53,7 @@ USER root
 # Install runtime utilities needed for health checks
 RUN apk add --no-cache curl wget
 
-# Ensure /app is writable by nodejs before copying files
+# Ensure /app is writable by nodejs (in case new files were created)
 RUN chown -R nodejs:nodejs /app
 
 # Copy the compiled application from the builder
