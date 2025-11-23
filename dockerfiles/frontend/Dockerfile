@@ -26,7 +26,7 @@ RUN npm run build
 # Production image, copy all the files and run next
 FROM nginx:alpine AS runner
 ARG FRONTEND_DIR=HarbourX-Frontend
-ARG HARBOURX_DIR=harbourx
+ARG HARBOURX_DIR=harbourX-docker
 WORKDIR /usr/share/nginx/html
 
 # Note: Nginx main process runs as root (required for binding port 80)

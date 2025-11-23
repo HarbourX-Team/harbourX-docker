@@ -16,6 +16,8 @@ RUN pnpm install --frozen-lockfile
 
 # Copy the remaining project files and build
 COPY ${AI_MODULE_DIR} .
+# Ensure public directory exists (it may be gitignored)
+RUN mkdir -p public/cases public/extract/case
 RUN pnpm build
 
 # Stage 2: Create a lightweight runtime image
@@ -48,9 +50,21 @@ USER root
 # Install runtime utilities needed for health checks
 RUN apk add --no-cache curl wget
 
-# Copy the compiled application and static assets from the builder
+# Ensure /app is writable by nodejs before copying files
+RUN chown -R nodejs:nodejs /app
+
+# Copy the compiled application from the builder
 COPY --from=build --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=build --chown=nodejs:nodejs /app/public ./public
+
+# Copy public directory from build stage (we ensured it exists in build stage)
+# If it doesn't exist for some reason, create empty structure
+RUN --mount=from=build,source=/app,target=/tmp/build \
+    if [ -d /tmp/build/public ] && [ "$(ls -A /tmp/build/public 2>/dev/null)" ]; then \
+        cp -r /tmp/build/public ./public; \
+    else \
+        mkdir -p public/cases public/extract/case; \
+    fi && \
+    chown -R nodejs:nodejs ./public
 
 # Verify dist/index.js exists
 RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && echo "Contents of /app/dist:" && ls -la /app/dist/ 2>/dev/null || echo "dist directory does not exist" && exit 1)
