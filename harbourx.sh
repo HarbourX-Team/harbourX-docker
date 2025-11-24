@@ -586,6 +586,44 @@ deploy_deploy() {
             chmod -R u+rw "\$PROJECT_ROOT" 2>/dev/null || true
         fi
         
+        # 更新前端代码（确保使用最新代码）
+        FRONTEND_DIR="\${FRONTEND_DIR:-HarbourX-Frontend}"
+        FRONTEND_PATH="\$PROJECT_ROOT/\$FRONTEND_DIR"
+        echo "更新前端代码: \$FRONTEND_PATH"
+        if [ -d "\$FRONTEND_PATH/.git" ]; then
+            echo "  前端仓库已存在，拉取最新代码..."
+            cd "\$FRONTEND_PATH"
+            git fetch origin || true
+            git reset --hard origin/main || git reset --hard origin/master || true
+            git pull origin main || git pull origin master || true
+            cd "\$DEPLOY_DIR"
+        elif [ -d "\$FRONTEND_PATH" ]; then
+            echo "  警告: 前端目录存在但不是 git 仓库，删除并重新克隆..."
+            rm -rf "\$FRONTEND_PATH"
+        fi
+        
+        if [ ! -d "\$FRONTEND_PATH" ]; then
+            echo "  克隆前端仓库..."
+            cd "\$PROJECT_ROOT"
+            GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+            if [ -n "\$GITHUB_TOKEN" ]; then
+                git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
+            else
+                git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
+            fi
+            chown -R \$(whoami):\$(whoami) "\$FRONTEND_PATH" 2>/dev/null || true
+            cd "\$DEPLOY_DIR"
+        fi
+        
+        # 验证前端代码是否包含最新更改（检查 apexcharts 是否已移除）
+        if [ -f "\$FRONTEND_PATH/package.json" ]; then
+            if grep -q "apexcharts" "\$FRONTEND_PATH/package.json"; then
+                echo "  ⚠️  警告: 前端代码仍包含 apexcharts，可能不是最新版本"
+            else
+                echo "  ✅ 前端代码已更新（apexcharts 已移除）"
+            fi
+        fi
+        
         echo "清理旧的构建缓存..."
         docker builder prune -f || true
         
