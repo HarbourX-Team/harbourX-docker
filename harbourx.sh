@@ -515,7 +515,22 @@ deploy_deploy() {
     
     # 在 EC2 上部署
     echo_info "在 EC2 上部署服务..."
-    ssh -i "$SSH_KEY" "${EC2_USER}@${EC2_HOST}" << EOF
+    
+    # 获取 GitHub token（从环境变量或本地 gh CLI）
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+    if [ -z "$GITHUB_TOKEN" ]; then
+        # 尝试从 gh CLI 获取 token
+        GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo "")
+    fi
+    
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "✅ 检测到 GitHub token，将用于拉取代码"
+    else
+        echo_warn "⚠️  未检测到 GitHub token，将使用公开方式拉取代码"
+    fi
+    
+    # 通过 SSH 传递环境变量并执行远程脚本
+    ssh -i "$SSH_KEY" "${EC2_USER}@${EC2_HOST}" "GITHUB_TOKEN='$GITHUB_TOKEN' bash -s" << EOF
         set -e
         cd ~
         sudo mkdir -p $DEPLOY_DIR
@@ -594,11 +609,12 @@ deploy_deploy() {
         # 保存当前目录
         CURRENT_DIR="\$(pwd)"
         
-        # 获取 GitHub token（从环境变量或本地 gh CLI）
-        GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-        if [ -z "\$GITHUB_TOKEN" ]; then
-            # 尝试从 gh CLI 获取 token
-            GITHUB_TOKEN=\$(gh auth token 2>/dev/null || echo "")
+        # 使用从本地传递过来的 GitHub token（已在 SSH 命令中设置）
+        # GITHUB_TOKEN 环境变量已通过 SSH 传递
+        if [ -n "\$GITHUB_TOKEN" ]; then
+            echo "  使用 GitHub token 进行认证"
+        else
+            echo "  未提供 GitHub token，使用公开方式"
         fi
         
         if [ -d "\$FRONTEND_PATH/.git" ]; then
