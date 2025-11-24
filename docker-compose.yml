@@ -148,6 +148,11 @@ services:
     container_name: harbourx-frontend
     environment:
       - NODE_ENV=production
+      # Backend and AI-Module URLs (using Docker service names)
+      # These are used by nginx.conf for proxy configuration
+      # Note: nginx.conf uses hardcoded service names, but we set these for consistency
+      - VITE_BACKEND_URL=${VITE_BACKEND_URL:-http://backend:8080}
+      - VITE_AI_MODULE_URL=${VITE_AI_MODULE_URL:-http://ai-module:3000}
     ports:
       - "80:80"
     depends_on:
