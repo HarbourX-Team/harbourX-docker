@@ -51,6 +51,8 @@ services:
       - DB_USER=${POSTGRES_USER:-harbourx}
       - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
       - JWT_SECRET=${JWT_SECRET}
+      # CORS allowed origins - can be overridden via environment variable
+      # For EC2 deployment, set FRONTEND_ALLOWED_ORIGINS=http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80
       - FRONTEND_ALLOWED_ORIGINS=${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3001,http://localhost:80,http://frontend:80}
     ports:
       - "8080:8080"
