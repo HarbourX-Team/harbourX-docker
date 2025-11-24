@@ -567,7 +567,7 @@ deploy_deploy() {
         fi
         
         echo "停止并删除现有服务..."
-        \$DOCKER_COMPOSE_CMD down --remove-orphans || true
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml down --remove-orphans || true
         # 强制删除可能残留的容器
         docker rm -f harbourx-postgres harbourx-backend harbourx-ai-module harbourx-frontend 2>/dev/null || true
         
@@ -628,7 +628,7 @@ deploy_deploy() {
         docker builder prune -f || true
         
         echo "清理旧的 frontend 镜像和容器..."
-        \$DOCKER_COMPOSE_CMD rm -f frontend 2>/dev/null || true
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml rm -f frontend 2>/dev/null || true
         docker rmi harbourx-frontend 2>/dev/null || true
         docker images | grep frontend | awk '{print \$3}' | xargs -r docker rmi -f 2>/dev/null || true
         
@@ -636,17 +636,17 @@ deploy_deploy() {
         export DOCKER_BUILDKIT=1
         export COMPOSE_DOCKER_CLI_BUILD=1
         # 强制重新构建 frontend 和 ai-module（不使用缓存）
-        \$DOCKER_COMPOSE_CMD build --no-cache frontend ai-module
-        \$DOCKER_COMPOSE_CMD up -d --build
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache frontend ai-module
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml up -d --build
         
         echo "等待服务启动..."
         sleep 10
         
         echo "检查服务状态..."
-        \$DOCKER_COMPOSE_CMD ps
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml ps
         
         echo "查看日志（最近 20 行）..."
-        \$DOCKER_COMPOSE_CMD logs --tail=20
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml logs --tail=20
 EOF
     
     echo_info "部署完成！"
