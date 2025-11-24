@@ -20,8 +20,8 @@ COPY ${AI_MODULE_DIR} .
 RUN mkdir -p public/cases public/extract/case
 # Fix tsconfig.json to include all necessary files if not already included
 RUN if ! grep -q '"index.ts"' tsconfig.json; then \
-        echo "修复 tsconfig.json..." && \
-        sed -i '/"include": \[/a\    "index.ts",\n    "api/**/*",\n    "service/**/*",' tsconfig.json; \
+    echo "修复 tsconfig.json..." && \
+    sed -i '/"include": \[/a\    "index.ts",\n    "api/**/*",\n    "service/**/*",' tsconfig.json; \
     fi
 # Disable declaration to avoid type inference issues
 RUN sed -i 's/"declaration": true/"declaration": false/g' tsconfig.json && \
@@ -78,21 +78,42 @@ COPY --from=build --chown=nodejs:nodejs /app/dist ./dist
 # If it doesn't exist for some reason, create empty structure
 RUN --mount=from=build,source=/app,target=/tmp/build \
     if [ -d /tmp/build/public ] && [ "$(ls -A /tmp/build/public 2>/dev/null)" ]; then \
-        cp -r /tmp/build/public ./public; \
+    cp -r /tmp/build/public ./public; \
     else \
-        mkdir -p public/cases public/extract/case; \
+    mkdir -p public/cases public/extract/case; \
     fi && \
     chown -R nodejs:nodejs ./public
 
 # Verify dist/index.js exists
 RUN test -f /app/dist/index.js || (echo "ERROR: dist/index.js not found!" && echo "Contents of /app/dist:" && ls -la /app/dist/ 2>/dev/null || echo "dist directory does not exist" && exit 1)
 
+# Install su-exec for user switching
+RUN apk add --no-cache su-exec
+
+# Create entrypoint script to fix permissions on mounted volume at startup
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'set -e' >> /entrypoint.sh && \
+    echo '# Fix permissions for mounted volume (runs as root)' >> /entrypoint.sh && \
+    echo 'if [ -d /app/public ]; then' >> /entrypoint.sh && \
+    echo '  echo "Fixing permissions for /app/public..."' >> /entrypoint.sh && \
+    echo '  chown -R nodejs:nodejs /app/public' >> /entrypoint.sh && \
+    echo '  chmod -R 755 /app/public' >> /entrypoint.sh && \
+    echo '  mkdir -p /app/public/cases /app/public/extract/case' >> /entrypoint.sh && \
+    echo '  chown -R nodejs:nodejs /app/public/cases /app/public/extract/case' >> /entrypoint.sh && \
+    echo '  chmod -R 755 /app/public/cases /app/public/extract/case' >> /entrypoint.sh && \
+    echo '  echo "Permissions fixed successfully"' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '# Switch to nodejs user and execute the command' >> /entrypoint.sh && \
+    echo 'exec su-exec nodejs "$@"' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
 # Ensure the service listens on all interfaces inside the container
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-# Switch to non-root user
-USER nodejs
+# Keep as root for entrypoint (it will switch to nodejs)
+USER root
 
 EXPOSE 3000
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "dist/index.js"]
