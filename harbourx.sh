@@ -590,9 +590,11 @@ deploy_deploy() {
         export PROJECT_ROOT=".."
         export DOCKER_DIR="\$DOCKER_DIR"
         # 设置 CORS 允许的源（包含 EC2 IP）
-        export FRONTEND_ALLOWED_ORIGINS="\${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
+        FRONTEND_ALLOWED_ORIGINS_VAL="\${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
+        export FRONTEND_ALLOWED_ORIGINS="\$FRONTEND_ALLOWED_ORIGINS_VAL"
         # 设置 Spring Boot 应用 JSON 配置（直接设置 frontend.allowedOrigins）
-        export SPRING_APPLICATION_JSON="{\"frontend\":{\"allowedOrigins\":\"\$FRONTEND_ALLOWED_ORIGINS\"}}"
+        # 使用单引号避免 shell 转义问题，然后通过 printf 生成正确的 JSON
+        export SPRING_APPLICATION_JSON=\$(printf '{"frontend":{"allowedOrigins":"%s"}}' "\$FRONTEND_ALLOWED_ORIGINS_VAL")
         
         # 确保 Docker 可以访问构建上下文
         # 修复可能的权限问题
