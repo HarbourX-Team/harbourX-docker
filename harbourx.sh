@@ -590,12 +590,17 @@ deploy_deploy() {
         FRONTEND_DIR="\${FRONTEND_DIR:-HarbourX-Frontend}"
         FRONTEND_PATH="\$PROJECT_ROOT/\$FRONTEND_DIR"
         echo "更新前端代码: \$FRONTEND_PATH"
+        
+        # 保存当前目录
+        CURRENT_DIR="\$(pwd)"
+        
         if [ -d "\$FRONTEND_PATH/.git" ]; then
             echo "  前端仓库已存在，拉取最新代码..."
             cd "\$FRONTEND_PATH"
             git fetch origin || true
             git reset --hard origin/main || git reset --hard origin/master || true
             git pull origin main || git pull origin master || true
+            cd "\$CURRENT_DIR"
         elif [ -d "\$FRONTEND_PATH" ]; then
             echo "  警告: 前端目录存在但不是 git 仓库，删除并重新克隆..."
             rm -rf "\$FRONTEND_PATH"
@@ -611,10 +616,12 @@ deploy_deploy() {
                 git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
             fi
             chown -R \$(whoami):\$(whoami) "\$FRONTEND_PATH" 2>/dev/null || true
+            cd "\$CURRENT_DIR"
         fi
         
-        # 确保回到部署目录
+        # 确保在部署目录
         cd "\$DEPLOY_DIR"
+        echo "  当前工作目录: \$(pwd)"
         
         # 验证前端代码是否包含最新更改（检查 apexcharts 是否已移除）
         if [ -f "\$FRONTEND_PATH/package.json" ]; then
@@ -629,6 +636,7 @@ deploy_deploy() {
         if [ ! -f "docker-compose.yml" ]; then
             echo "  ❌ 错误: docker-compose.yml 文件不存在于 \$DEPLOY_DIR"
             echo "  当前目录: \$(pwd)"
+            echo "  期望目录: \$DEPLOY_DIR"
             echo "  目录内容: \$(ls -la)"
             exit 1
         fi
