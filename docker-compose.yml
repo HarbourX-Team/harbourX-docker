@@ -54,8 +54,8 @@ services:
       # CORS allowed origins - can be overridden via environment variable
       # For EC2 deployment, set FRONTEND_ALLOWED_ORIGINS=http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80
       # Use SPRING_APPLICATION_JSON to directly set Spring Boot properties
-      # Note: JSON must be properly escaped. The value will be set by deploy script
-      - SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON:-\{\"frontend\":\{\"allowedOrigins\":\"http://localhost:3001,http://localhost:80,http://frontend:80\"\}\}}
+      # Note: The value is set by deploy script (harbourx.sh). If not set, use a simple default.
+      - SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}
     ports:
       - "8080:8080"
     depends_on:
