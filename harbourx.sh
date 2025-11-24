@@ -586,13 +586,19 @@ deploy_deploy() {
             chmod -R u+rw "\$PROJECT_ROOT" 2>/dev/null || true
         fi
         
-        echo "清理旧的构建缓存（ai-module）..."
+        echo "清理旧的构建缓存..."
         docker builder prune -f || true
+        
+        echo "清理旧的 frontend 镜像和容器..."
+        \$DOCKER_COMPOSE_CMD rm -f frontend 2>/dev/null || true
+        docker rmi harbourx-frontend 2>/dev/null || true
+        docker images | grep frontend | awk '{print \$3}' | xargs -r docker rmi -f 2>/dev/null || true
         
         echo "构建并启动服务..."
         export DOCKER_BUILDKIT=1
         export COMPOSE_DOCKER_CLI_BUILD=1
-        \$DOCKER_COMPOSE_CMD build --no-cache ai-module
+        # 强制重新构建 frontend 和 ai-module（不使用缓存）
+        \$DOCKER_COMPOSE_CMD build --no-cache frontend ai-module
         \$DOCKER_COMPOSE_CMD up -d --build
         
         echo "等待服务启动..."
