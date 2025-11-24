@@ -586,20 +586,54 @@ deploy_deploy() {
             chmod -R u+rw "\$PROJECT_ROOT" 2>/dev/null || true
         fi
         
-        # 更新前端代码（确保使用最新代码）
+        # 更新前端代码（从 GitHub 拉取最新代码）
         FRONTEND_DIR="\${FRONTEND_DIR:-HarbourX-Frontend}"
         FRONTEND_PATH="\$PROJECT_ROOT/\$FRONTEND_DIR"
-        echo "更新前端代码: \$FRONTEND_PATH"
+        echo "更新前端代码（从 GitHub 拉取）: \$FRONTEND_PATH"
         
         # 保存当前目录
         CURRENT_DIR="\$(pwd)"
         
+        # 获取 GitHub token（从环境变量或本地 gh CLI）
+        GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+        if [ -z "\$GITHUB_TOKEN" ]; then
+            # 尝试从 gh CLI 获取 token
+            GITHUB_TOKEN=\$(gh auth token 2>/dev/null || echo "")
+        fi
+        
         if [ -d "\$FRONTEND_PATH/.git" ]; then
             echo "  前端仓库已存在，拉取最新代码..."
             cd "\$FRONTEND_PATH"
-            git fetch origin || true
-            git reset --hard origin/main || git reset --hard origin/master || true
-            git pull origin main || git pull origin master || true
+            # 获取当前分支
+            CURRENT_BRANCH=\$(git branch --show-current 2>/dev/null || echo "main")
+            echo "  当前分支: \$CURRENT_BRANCH"
+            
+            # 配置 git 使用 token（如果需要）
+            if [ -n "\$GITHUB_TOKEN" ]; then
+                git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+            fi
+            
+            # 拉取最新代码（优先使用 main，fallback 到 master）
+            echo "  从 GitHub 拉取最新代码..."
+            if git fetch origin main 2>/dev/null; then
+                git reset --hard origin/main || true
+                git checkout main 2>/dev/null || true
+            elif git fetch origin master 2>/dev/null; then
+                git reset --hard origin/master || true
+                git checkout master 2>/dev/null || true
+            else
+                echo "  ⚠️  fetch 失败，尝试 pull..."
+                git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+            fi
+            
+            # 恢复 git config
+            if [ -n "\$GITHUB_TOKEN" ]; then
+                git config --unset url."https://\${GITHUB_TOKEN}@github.com/".insteadOf || true
+            fi
+            
+            # 显示最新 commit
+            LATEST_COMMIT=\$(git log -1 --oneline 2>/dev/null || echo "unknown")
+            echo "  最新 commit: \$LATEST_COMMIT"
             cd "\$CURRENT_DIR"
         elif [ -d "\$FRONTEND_PATH" ]; then
             echo "  警告: 前端目录存在但不是 git 仓库，删除并重新克隆..."
@@ -607,12 +641,17 @@ deploy_deploy() {
         fi
         
         if [ ! -d "\$FRONTEND_PATH" ]; then
-            echo "  克隆前端仓库..."
+            echo "  从 GitHub 克隆前端仓库..."
             cd "\$PROJECT_ROOT"
-            GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+            mkdir -p "\$PROJECT_ROOT"
             if [ -n "\$GITHUB_TOKEN" ]; then
-                git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
+                echo "  使用 GitHub token 克隆..."
+                git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || {
+                    echo "  Token 克隆失败，尝试公开克隆..."
+                    git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
+                }
             else
+                echo "  使用公开方式克隆..."
                 git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
             fi
             chown -R \$(whoami):\$(whoami) "\$FRONTEND_PATH" 2>/dev/null || true
