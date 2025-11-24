@@ -596,7 +596,6 @@ deploy_deploy() {
             git fetch origin || true
             git reset --hard origin/main || git reset --hard origin/master || true
             git pull origin main || git pull origin master || true
-            cd "\$DEPLOY_DIR"
         elif [ -d "\$FRONTEND_PATH" ]; then
             echo "  警告: 前端目录存在但不是 git 仓库，删除并重新克隆..."
             rm -rf "\$FRONTEND_PATH"
@@ -612,8 +611,10 @@ deploy_deploy() {
                 git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
             fi
             chown -R \$(whoami):\$(whoami) "\$FRONTEND_PATH" 2>/dev/null || true
-            cd "\$DEPLOY_DIR"
         fi
+        
+        # 确保回到部署目录
+        cd "\$DEPLOY_DIR"
         
         # 验证前端代码是否包含最新更改（检查 apexcharts 是否已移除）
         if [ -f "\$FRONTEND_PATH/package.json" ]; then
@@ -623,6 +624,15 @@ deploy_deploy() {
                 echo "  ✅ 前端代码已更新（apexcharts 已移除）"
             fi
         fi
+        
+        # 验证 docker-compose.yml 文件存在
+        if [ ! -f "docker-compose.yml" ]; then
+            echo "  ❌ 错误: docker-compose.yml 文件不存在于 \$DEPLOY_DIR"
+            echo "  当前目录: \$(pwd)"
+            echo "  目录内容: \$(ls -la)"
+            exit 1
+        fi
+        echo "  ✅ docker-compose.yml 文件存在"
         
         echo "清理旧的构建缓存..."
         docker builder prune -f || true
