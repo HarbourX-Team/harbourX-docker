@@ -140,8 +140,8 @@ services:
   # Frontend Service (React + Nginx)
   frontend:
     build:
-      context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/frontend/Dockerfile
+      context: ${PROJECT_ROOT:-..}/${FRONTEND_DIR:-HarbourX-Frontend}
+      dockerfile: ../${DOCKER_DIR:-harbourX}/dockerfiles/frontend/Dockerfile
       args:
         FRONTEND_DIR: ${FRONTEND_DIR:-HarbourX-Frontend}
         HARBOURX_DIR: ${DOCKER_DIR:-harbourX}

@@ -18,7 +18,22 @@ RUN pnpm install --frozen-lockfile
 COPY ${AI_MODULE_DIR} .
 # Ensure public directory exists (it may be gitignored)
 RUN mkdir -p public/cases public/extract/case
+# Fix tsconfig.json to include all necessary files if not already included
+RUN if ! grep -q '"index.ts"' tsconfig.json; then \
+        echo "修复 tsconfig.json..." && \
+        sed -i '/"include": \[/a\    "index.ts",\n    "api/**/*",\n    "service/**/*",' tsconfig.json; \
+    fi
+# Disable declaration to avoid type inference issues
+RUN sed -i 's/"declaration": true/"declaration": false/g' tsconfig.json && \
+    sed -i 's/"declarationMap": true/"declarationMap": false/g' tsconfig.json && \
+    sed -i 's/"sourceMap": true/"sourceMap": false/g' tsconfig.json || true
+# Verify tsconfig.json includes all necessary files
+RUN cat tsconfig.json | grep -A 8 "include" || echo "Warning: tsconfig.json check failed"
+# Build the project
 RUN pnpm build
+# Verify dist/index.js was created
+RUN ls -la dist/ | head -10 || echo "Warning: dist listing failed"
+RUN test -f dist/index.js && echo "✅ dist/index.js exists" || (echo "❌ dist/index.js NOT FOUND" && ls -la dist/ && exit 1)
 
 # Stage 2: Create a lightweight runtime image
 FROM node:20-alpine AS runtime

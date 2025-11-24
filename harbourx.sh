@@ -488,6 +488,7 @@ deploy_deploy() {
     # 上传 harbourX 目录
     echo_info "上传 harbourX 配置..."
     TAR_FILE="/tmp/harbourx-$(date +%s).tar.gz"
+    # 确保使用最新的文件（不排除任何配置文件）
     tar -czf "$TAR_FILE" \
         --exclude='.git' \
         --exclude='node_modules' \
@@ -495,7 +496,19 @@ deploy_deploy() {
         --exclude='dist' \
         --exclude='build' \
         --exclude='.env' \
+        --exclude='containerd' \
+        --exclude='*.log' \
+        --exclude='.DS_Store' \
+        --exclude='*.tar.gz' \
         . 2>/dev/null
+    
+    # 验证关键文件是否在 tar 中
+    echo_info "验证打包内容..."
+    if tar -tzf "$TAR_FILE" | grep -q "dockerfiles/ai-module/Dockerfile"; then
+        echo_info "✅ Dockerfile 已包含"
+    else
+        echo_error "❌ Dockerfile 未找到"
+    fi
     
     scp -i "$SSH_KEY" "$TAR_FILE" "${EC2_USER}@${EC2_HOST}:~/"
     rm -f "$TAR_FILE"
@@ -512,6 +525,40 @@ deploy_deploy() {
         
         cd $DEPLOY_DIR
         
+        # 检测实际的 docker 配置目录名
+        # 当前目录应该就是包含 dockerfiles 的目录
+        if [ -d "dockerfiles" ]; then
+            # 当前目录就是 docker 配置目录，使用当前目录名
+            export DOCKER_DIR="\$(basename \$(pwd))"
+        elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
+            export DOCKER_DIR="harbourX"
+        elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
+            export DOCKER_DIR="harbourx"
+        else
+            # 查找包含 dockerfiles 的目录
+            DOCKER_DIR_FOUND=\$(find . -maxdepth 2 -type d -name "dockerfiles" -exec dirname {} \; | head -1 | xargs basename 2>/dev/null)
+            if [ -n "\$DOCKER_DIR_FOUND" ] && [ "\$DOCKER_DIR_FOUND" != "." ]; then
+                export DOCKER_DIR="\$DOCKER_DIR_FOUND"
+            else
+                export DOCKER_DIR="harbourX"
+            fi
+        fi
+        echo "当前目录: \$(pwd)"
+        echo "使用 DOCKER_DIR: \$DOCKER_DIR"
+        echo "检查 dockerfiles 目录: \$(ls -la dockerfiles 2>/dev/null | head -3 || echo 'dockerfiles 不存在')"
+        
+        # 确保 AI-Module .env 文件存在（如果不存在则创建空文件）
+        PROJECT_ROOT="\${PROJECT_ROOT:-..}"
+        AI_MODULE_DIR="\${AI_MODULE_DIR:-AI-Module}"
+        ENV_FILE="\$PROJECT_ROOT/\$AI_MODULE_DIR/.env"
+        if [ ! -f "\$ENV_FILE" ]; then
+            echo "创建 AI-Module .env 文件..."
+            mkdir -p "\$(dirname "\$ENV_FILE")"
+            touch "\$ENV_FILE"
+            echo "# AI-Module 环境变量" >> "\$ENV_FILE"
+            echo "# 请根据需要添加配置" >> "\$ENV_FILE"
+        fi
+        
         # 检测 docker compose 命令
         if command -v docker-compose &> /dev/null; then
             DOCKER_COMPOSE_CMD="docker-compose"
@@ -519,10 +566,33 @@ deploy_deploy() {
             DOCKER_COMPOSE_CMD="docker compose"
         fi
         
-        echo "停止现有服务..."
-        \$DOCKER_COMPOSE_CMD down || true
+        echo "停止并删除现有服务..."
+        \$DOCKER_COMPOSE_CMD down --remove-orphans || true
+        # 强制删除可能残留的容器
+        docker rm -f harbourx-postgres harbourx-backend harbourx-ai-module harbourx-frontend 2>/dev/null || true
+        
+        # 设置正确的环境变量
+        export PROJECT_ROOT=".."
+        export DOCKER_DIR="\$DOCKER_DIR"
+        
+        # 确保 Docker 可以访问构建上下文
+        # 修复可能的权限问题
+        sudo chown -R \$(whoami):\$(whoami) . 2>/dev/null || true
+        chmod -R u+rw . 2>/dev/null || true
+        
+        # 确保父目录权限正确（PROJECT_ROOT）
+        if [ -d "\$PROJECT_ROOT" ]; then
+            sudo chown -R \$(whoami):\$(whoami) "\$PROJECT_ROOT" 2>/dev/null || true
+            chmod -R u+rw "\$PROJECT_ROOT" 2>/dev/null || true
+        fi
+        
+        echo "清理旧的构建缓存（ai-module）..."
+        docker builder prune -f || true
         
         echo "构建并启动服务..."
+        export DOCKER_BUILDKIT=1
+        export COMPOSE_DOCKER_CLI_BUILD=1
+        \$DOCKER_COMPOSE_CMD build --no-cache ai-module
         \$DOCKER_COMPOSE_CMD up -d --build
         
         echo "等待服务启动..."

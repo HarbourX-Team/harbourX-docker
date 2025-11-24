@@ -18,6 +18,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Copy nginx.conf to builder stage so it's available for runner stage
+# Note: nginx.conf path is relative to build context (FRONTEND_DIR)
 COPY app/src/infrastructure/docker/nginx.conf /tmp/nginx.conf
 
 # Build the application
