@@ -57,6 +57,7 @@ HarbourX 统一管理脚本
     status        查看服务状态
     clean         清理所有 Docker 资源（镜像、容器、卷，需要确认）
     clean:all     快速清理所有 Docker 资源（无需确认，谨慎使用）
+    copy-env      复制 .env 文件到 AI-Module 目录
 
   deploy:
     local         本地部署（检查环境、构建并启动所有服务）
@@ -87,6 +88,7 @@ HarbourX 统一管理脚本
   ./harbourx.sh docker clean         # 清理 Docker 资源（需确认）
   ./harbourx.sh docker clean:all    # 快速清理所有 Docker 资源
   ./harbourx.sh docker logs backend
+  ./harbourx.sh docker copy-env     # 复制 .env 到 AI-Module
   ./harbourx.sh deploy local         # 本地完整部署
   ./harbourx.sh deploy deploy        # 部署到 EC2
   ./harbourx.sh deploy ssh
@@ -488,7 +490,7 @@ deploy_deploy() {
     # 上传 harbourX 目录
     echo_info "上传 harbourX 配置..."
     TAR_FILE="/tmp/harbourx-$(date +%s).tar.gz"
-    # 确保使用最新的文件（不排除任何配置文件）
+    # 确保使用最新的文件（排除 harbourX-docker 的 .env，但允许 AI-Module 的 .env）
     tar -czf "$TAR_FILE" \
         --exclude='.git' \
         --exclude='node_modules' \
@@ -501,6 +503,26 @@ deploy_deploy() {
         --exclude='.DS_Store' \
         --exclude='*.tar.gz' \
         . 2>/dev/null
+    
+    # 检查并准备 AI-Module .env 文件
+    PROJECT_ROOT="${PROJECT_ROOT:-..}"
+    AI_MODULE_DIR="${AI_MODULE_DIR:-AI-Module}"
+    AI_MODULE_ENV_FILE="$PROJECT_ROOT/$AI_MODULE_DIR/.env"
+    
+    if [ -f "$AI_MODULE_ENV_FILE" ]; then
+        echo_info "找到 AI-Module .env 文件，将单独上传..."
+        # 创建临时目录并复制 .env 文件
+        TEMP_ENV_DIR="/tmp/ai-module-env-$(date +%s)"
+        mkdir -p "$TEMP_ENV_DIR"
+        cp "$AI_MODULE_ENV_FILE" "$TEMP_ENV_DIR/.env"
+        # 单独上传 .env 文件
+        scp -i "$SSH_KEY" "$TEMP_ENV_DIR/.env" "${EC2_USER}@${EC2_HOST}:~/ai-module.env"
+        rm -rf "$TEMP_ENV_DIR"
+        echo_info "✅ AI-Module .env 文件已上传"
+    else
+        echo_warn "⚠️  AI-Module .env 文件不存在: $AI_MODULE_ENV_FILE"
+        echo_warn "   容器将使用默认配置或空 .env 文件"
+    fi
     
     # 验证关键文件是否在 tar 中
     echo_info "验证打包内容..."
@@ -562,16 +584,31 @@ deploy_deploy() {
         echo "使用 DOCKER_DIR: \$DOCKER_DIR"
         echo "检查 dockerfiles 目录: \$(ls -la dockerfiles 2>/dev/null | head -3 || echo 'dockerfiles 不存在')"
         
-        # 确保 AI-Module .env 文件存在（如果不存在则创建空文件）
+        # 处理 AI-Module .env 文件
         PROJECT_ROOT="\${PROJECT_ROOT:-..}"
         AI_MODULE_DIR="\${AI_MODULE_DIR:-AI-Module}"
         ENV_FILE="\$PROJECT_ROOT/\$AI_MODULE_DIR/.env"
-        if [ ! -f "\$ENV_FILE" ]; then
-            echo "创建 AI-Module .env 文件..."
-            mkdir -p "\$(dirname "\$ENV_FILE")"
+        
+        # 确保 AI-Module 目录存在
+        mkdir -p "\$(dirname "\$ENV_FILE")"
+        
+        # 如果从本地上传了 .env 文件，使用它
+        if [ -f ~/ai-module.env ]; then
+            echo "从上传的文件复制 AI-Module .env..."
+            cp ~/ai-module.env "\$ENV_FILE"
+            chmod 600 "\$ENV_FILE"
+            rm -f ~/ai-module.env
+            echo "✅ AI-Module .env 文件已从上传文件复制"
+        elif [ ! -f "\$ENV_FILE" ]; then
+            echo "⚠️  创建空的 AI-Module .env 文件..."
             touch "\$ENV_FILE"
             echo "# AI-Module 环境变量" >> "\$ENV_FILE"
             echo "# 请根据需要添加配置" >> "\$ENV_FILE"
+            chmod 600 "\$ENV_FILE"
+            echo "⚠️  警告: 使用的是空 .env 文件，某些功能可能无法使用"
+        else
+            echo "✅ AI-Module .env 文件已存在，保持不变"
+            chmod 600 "\$ENV_FILE" 2>/dev/null || true
         fi
         
         # 检测 docker compose 命令
@@ -785,6 +822,22 @@ deploy_deploy() {
         
         echo "检查服务状态..."
         \$DOCKER_COMPOSE_CMD -f docker-compose.yml ps
+        
+        # 将 .env 文件复制到 AI-Module 容器内
+        if docker ps --format "{{.Names}}" | grep -q "^harbourx-ai-module$"; then
+            if [ -f "\$ENV_FILE" ]; then
+                echo "复制 .env 文件到 AI-Module 容器..."
+                docker cp "\$ENV_FILE" harbourx-ai-module:/app/.env 2>/dev/null || {
+                    echo "⚠️  警告: 无法复制 .env 文件到容器，但环境变量已通过 env_file 加载"
+                }
+                docker exec harbourx-ai-module chmod 600 /app/.env 2>/dev/null || true
+                echo "✅ .env 文件已复制到 AI-Module 容器: /app/.env"
+            else
+                echo "⚠️  警告: AI-Module .env 文件不存在，无法复制到容器"
+            fi
+        else
+            echo "⚠️  警告: AI-Module 容器未运行，无法复制 .env 文件"
+        fi
         
         echo "查看日志（最近 20 行）..."
         \$DOCKER_COMPOSE_CMD -f docker-compose.yml logs --tail=20
@@ -1045,6 +1098,63 @@ deploy_create_broker() {
     echo "   - 登录密码: password"
 }
 
+# 复制 .env 文件从 AI-Module 目录到 Docker 容器
+docker_copy_env() {
+    echo_info "复制 .env 文件从 AI-Module 目录到 Docker 容器..."
+    
+    # 获取项目路径
+    PROJECT_ROOT="${PROJECT_ROOT:-..}"
+    AI_MODULE_DIR="${AI_MODULE_DIR:-AI-Module}"
+    AI_MODULE_PATH="$PROJECT_ROOT/$AI_MODULE_DIR"
+    ENV_FILE="$AI_MODULE_PATH/.env"
+    
+    # 检查 AI-Module 目录是否存在
+    if [ ! -d "$AI_MODULE_PATH" ]; then
+        echo_error "AI-Module 目录不存在: $AI_MODULE_PATH"
+        echo_error "请检查 PROJECT_ROOT 和 AI_MODULE_DIR 环境变量"
+        return 1
+    fi
+    
+    # 检查 .env 文件是否存在
+    if [ ! -f "$ENV_FILE" ]; then
+        echo_error ".env 文件不存在于 AI-Module 目录: $ENV_FILE"
+        echo_error "请确保 .env 文件存在于 $AI_MODULE_PATH/.env"
+        return 1
+    fi
+    
+    # 检查 AI-Module 容器是否运行
+    if ! docker ps --format "{{.Names}}" | grep -q "^harbourx-ai-module$"; then
+        echo_error "AI-Module 容器未运行"
+        echo_error "请先启动容器: ./harbourx.sh docker start"
+        return 1
+    fi
+    
+    # 复制 .env 文件到容器内的 /app/.env
+    echo_info "从 $ENV_FILE 复制到容器 harbourx-ai-module:/app/.env"
+    docker cp "$ENV_FILE" harbourx-ai-module:/app/.env
+    
+    if [ $? -eq 0 ]; then
+        # 在容器内设置适当的权限
+        docker exec harbourx-ai-module chmod 600 /app/.env 2>/dev/null || true
+        echo_info "✅ .env 文件已复制到 AI-Module 容器: /app/.env"
+        
+        echo_warn "注意: 环境变量已通过 docker-compose env_file 自动加载"
+        echo_info "如果容器需要重新加载环境变量，请重启容器："
+        echo "  ./harbourx.sh docker restart ai-module"
+        echo ""
+        read -p "是否现在重启 AI-Module 容器以应用更改？(y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo_info "重启 AI-Module 容器..."
+            docker restart harbourx-ai-module
+            echo_info "✅ AI-Module 容器已重启"
+        fi
+    else
+        echo_error "❌ 复制 .env 文件到容器失败"
+        return 1
+    fi
+}
+
 # 配置命令
 config_env() {
     echo_info "当前配置："
@@ -1099,6 +1209,9 @@ main() {
                     ;;
                 clean:all)
                     docker_clean_all
+                    ;;
+                copy-env)
+                    docker_copy_env
                     ;;
                 *)
                     echo_error "未知的 docker 子命令: $subcommand"
