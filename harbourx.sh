@@ -510,6 +510,35 @@ deploy_deploy() {
                     -H "Accept: application/vnd.github.v3+json" \
                     https://api.github.com/user 2>/dev/null | grep -o '"login":"[^"]*' | cut -d'"' -f4 || echo "unknown")
                 echo_info "  ✅ GitHub token 有效 (用户: $GITHUB_USER)"
+                
+                # 检查仓库访问权限
+                echo_info "  检查仓库访问权限..."
+                REPO_CHECK_BACKEND=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/HarbourX-Team/HarbourX-Backend 2>/dev/null || echo "000")
+                
+                REPO_CHECK_FRONTEND=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/HarbourX-Team/HarbourX-Frontend 2>/dev/null || echo "000")
+                
+                if [ "$REPO_CHECK_BACKEND" = "200" ] && [ "$REPO_CHECK_FRONTEND" = "200" ]; then
+                    echo_info "  ✅ 有权限访问所有必需仓库"
+                elif [ "$REPO_CHECK_BACKEND" = "404" ] || [ "$REPO_CHECK_FRONTEND" = "404" ]; then
+                    echo_warn "  ⚠️  无法访问某些仓库 (404 - Repository not found)"
+                    echo_warn "     这可能是权限问题："
+                    echo_warn "     - 您的账号可能没有被添加到 HarbourX-Team 组织"
+                    echo_warn "     - 或者 token 没有 'repo' 权限"
+                    echo_warn "     部署会继续，但如果拉取失败，请检查权限"
+                elif [ "$REPO_CHECK_BACKEND" = "403" ] || [ "$REPO_CHECK_FRONTEND" = "403" ]; then
+                    echo_warn "  ⚠️  访问被拒绝 (403 - Forbidden)"
+                    echo_warn "     这通常是权限问题，请检查："
+                    echo_warn "     - token 是否有 'repo' 权限"
+                    echo_warn "     - 您的账号是否有访问仓库的权限"
+                else
+                    echo_warn "  ⚠️  无法验证仓库访问权限 (Backend: $REPO_CHECK_BACKEND, Frontend: $REPO_CHECK_FRONTEND)"
+                fi
             else
                 echo_error "  ❌ GitHub token 无效或已过期 (HTTP $HTTP_CODE)"
                 echo_error ""
@@ -791,15 +820,50 @@ deploy_deploy() {
             echo "  从 GitHub 拉取最新代码..."
             
             # 尝试 fetch，如果失败则终止部署
-            if ! git fetch origin main; then
+            FETCH_ERROR_OUTPUT=\$(mktemp)
+            if ! git fetch origin main 2>"\$FETCH_ERROR_OUTPUT"; then
+                FETCH_ERROR=\$(cat "\$FETCH_ERROR_OUTPUT" 2>/dev/null || echo "未知错误")
+                rm -f "\$FETCH_ERROR_OUTPUT"
+                
                 echo "  ❌ git fetch 失败，终止部署"
-                echo "  ⚠️  可能的原因："
-                echo "     - GitHub token 权限不足或已过期"
-                echo "     - 网络连接问题"
-                echo "     - 仓库权限问题"
+                echo "  错误详情: \$FETCH_ERROR"
+                echo ""
+                
+                # 检查是否是权限问题
+                if echo "\$FETCH_ERROR" | grep -qi "repository not found\|not found"; then
+                    echo "  ⚠️  这是权限问题！可能的原因："
+                    echo "     1. GitHub token 没有访问该仓库的权限"
+                    echo "     2. 仓库是私有的，但 token 没有 'repo' 权限"
+                    echo "     3. 您的 GitHub 账号没有被添加到仓库的协作者列表"
+                    echo ""
+                    echo "  💡 解决方案："
+                    echo "     1. 确认 token 有 'repo' 权限（完整仓库访问权限）"
+                    echo "     2. 确认您的 GitHub 账号有访问 HarbourX-Team 组织的权限"
+                    echo "     3. 联系仓库管理员将您添加为协作者"
+                    echo "     4. 重新生成 token: https://github.com/settings/tokens"
+                    echo "        - 选择 'repo' 权限（需要访问私有仓库）"
+                    echo "        - 设置环境变量: export GITHUB_TOKEN='your_new_token'"
+                elif echo "\$FETCH_ERROR" | grep -qi "permission denied\|authentication failed\|unauthorized"; then
+                    echo "  ⚠️  这是认证问题！可能的原因："
+                    echo "     1. GitHub token 已过期"
+                    echo "     2. Token 权限不足"
+                    echo "     3. Token 被撤销"
+                    echo ""
+                    echo "  💡 解决方案："
+                    echo "     1. 重新生成 token: https://github.com/settings/tokens"
+                    echo "     2. 确保选择 'repo' 权限"
+                    echo "     3. 设置环境变量: export GITHUB_TOKEN='your_new_token'"
+                else
+                    echo "  ⚠️  可能的原因："
+                    echo "     - GitHub token 权限不足或已过期"
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库权限问题"
+                fi
+                echo ""
                 echo "  💡 建议：检查 GitHub 认证状态"
                 exit 1
             fi
+            rm -f "\$FETCH_ERROR_OUTPUT"
             
             # 重置到远程 main 分支
             if ! git reset --hard origin/main; then
@@ -902,15 +966,50 @@ deploy_deploy() {
             echo "  从 GitHub 拉取最新代码..."
             
             # 尝试 fetch，如果失败则终止部署
-            if ! git fetch origin main; then
+            FETCH_ERROR_OUTPUT=\$(mktemp)
+            if ! git fetch origin main 2>"\$FETCH_ERROR_OUTPUT"; then
+                FETCH_ERROR=\$(cat "\$FETCH_ERROR_OUTPUT" 2>/dev/null || echo "未知错误")
+                rm -f "\$FETCH_ERROR_OUTPUT"
+                
                 echo "  ❌ git fetch 失败，终止部署"
-                echo "  ⚠️  可能的原因："
-                echo "     - GitHub token 权限不足或已过期"
-                echo "     - 网络连接问题"
-                echo "     - 仓库权限问题"
+                echo "  错误详情: \$FETCH_ERROR"
+                echo ""
+                
+                # 检查是否是权限问题
+                if echo "\$FETCH_ERROR" | grep -qi "repository not found\|not found"; then
+                    echo "  ⚠️  这是权限问题！可能的原因："
+                    echo "     1. GitHub token 没有访问该仓库的权限"
+                    echo "     2. 仓库是私有的，但 token 没有 'repo' 权限"
+                    echo "     3. 您的 GitHub 账号没有被添加到仓库的协作者列表"
+                    echo ""
+                    echo "  💡 解决方案："
+                    echo "     1. 确认 token 有 'repo' 权限（完整仓库访问权限）"
+                    echo "     2. 确认您的 GitHub 账号有访问 HarbourX-Team 组织的权限"
+                    echo "     3. 联系仓库管理员将您添加为协作者"
+                    echo "     4. 重新生成 token: https://github.com/settings/tokens"
+                    echo "        - 选择 'repo' 权限（需要访问私有仓库）"
+                    echo "        - 设置环境变量: export GITHUB_TOKEN='your_new_token'"
+                elif echo "\$FETCH_ERROR" | grep -qi "permission denied\|authentication failed\|unauthorized"; then
+                    echo "  ⚠️  这是认证问题！可能的原因："
+                    echo "     1. GitHub token 已过期"
+                    echo "     2. Token 权限不足"
+                    echo "     3. Token 被撤销"
+                    echo ""
+                    echo "  💡 解决方案："
+                    echo "     1. 重新生成 token: https://github.com/settings/tokens"
+                    echo "     2. 确保选择 'repo' 权限"
+                    echo "     3. 设置环境变量: export GITHUB_TOKEN='your_new_token'"
+                else
+                    echo "  ⚠️  可能的原因："
+                    echo "     - GitHub token 权限不足或已过期"
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库权限问题"
+                fi
+                echo ""
                 echo "  💡 建议：检查 GitHub 认证状态"
                 exit 1
             fi
+            rm -f "\$FETCH_ERROR_OUTPUT"
             
             # 重置到远程 main 分支
             if ! git reset --hard origin/main; then
