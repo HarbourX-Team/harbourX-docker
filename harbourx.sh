@@ -815,24 +815,29 @@ deploy_deploy() {
             if [ -n "\$GITHUB_TOKEN" ]; then
                 # 获取当前远程 URL
                 CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
-                # 只显示 URL 类型，不显示完整 URL（避免泄露 token）
-                if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://"; then
-                    echo "  当前远程 URL 类型: HTTPS"
-                elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@"; then
-                    echo "  当前远程 URL 类型: SSH"
-                else
-                    echo "  当前远程 URL 类型: 其他"
-                fi
                 
-                # 检查 URL 是否已经包含 token
+                # 检查 URL 是否已经包含当前 token
                 if echo "\$CURRENT_REMOTE_URL" | grep -q "\${GITHUB_TOKEN}"; then
-                    echo "  ✅ 远程 URL 已包含 token"
+                    echo "  ✅ 远程 URL 已包含当前 token"
                 else
-                    # URL 不包含 token，需要更新
-                    if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://github.com/"; then
-                        # HTTPS URL: https://github.com/... -> https://token@github.com/...
-                        NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
-                        echo "  更新 HTTPS URL 为包含 token 的格式..."
+                    # URL 不包含当前 token，需要更新
+                    # 处理各种 HTTPS URL 格式（包括已包含其他认证信息的）
+                    if echo "\$CURRENT_REMOTE_URL" | grep -qiE "https://.*github\.com/"; then
+                        # HTTPS URL（可能已包含用户名/token）: 提取仓库路径并更新
+                        # 使用更宽松的匹配，处理各种格式
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|https://[^/]+github\.com/||" | sed "s|^[^/]*@github\.com/||")
+                        if [ -z "\$REPO_PATH" ]; then
+                            # 如果提取失败，尝试另一种方式
+                            REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|.*github\.com/||" | sed "s|.*github\.com:||")
+                        fi
+                        if [ -n "\$REPO_PATH" ]; then
+                            NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
+                            echo "  更新 HTTPS URL 为包含 token 的格式..."
+                        else
+                            echo "  ⚠️  无法提取仓库路径，使用 git config 方式"
+                            git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                            NEW_REMOTE_URL=""
+                        fi
                     elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
                         # SSH URL: git@github.com:... -> https://token@github.com/...
                         REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
@@ -1010,24 +1015,29 @@ deploy_deploy() {
             if [ -n "\$GITHUB_TOKEN" ]; then
                 # 获取当前远程 URL
                 CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
-                # 只显示 URL 类型，不显示完整 URL（避免泄露 token）
-                if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://"; then
-                    echo "  当前远程 URL 类型: HTTPS"
-                elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@"; then
-                    echo "  当前远程 URL 类型: SSH"
-                else
-                    echo "  当前远程 URL 类型: 其他"
-                fi
                 
-                # 检查 URL 是否已经包含 token
+                # 检查 URL 是否已经包含当前 token
                 if echo "\$CURRENT_REMOTE_URL" | grep -q "\${GITHUB_TOKEN}"; then
-                    echo "  ✅ 远程 URL 已包含 token"
+                    echo "  ✅ 远程 URL 已包含当前 token"
                 else
-                    # URL 不包含 token，需要更新
-                    if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://github.com/"; then
-                        # HTTPS URL: https://github.com/... -> https://token@github.com/...
-                        NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
-                        echo "  更新 HTTPS URL 为包含 token 的格式..."
+                    # URL 不包含当前 token，需要更新
+                    # 处理各种 HTTPS URL 格式（包括已包含其他认证信息的）
+                    if echo "\$CURRENT_REMOTE_URL" | grep -qiE "https://.*github\.com/"; then
+                        # HTTPS URL（可能已包含用户名/token）: 提取仓库路径并更新
+                        # 使用更宽松的匹配，处理各种格式
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|https://[^/]+github\.com/||" | sed "s|^[^/]*@github\.com/||")
+                        if [ -z "\$REPO_PATH" ]; then
+                            # 如果提取失败，尝试另一种方式
+                            REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|.*github\.com/||" | sed "s|.*github\.com:||")
+                        fi
+                        if [ -n "\$REPO_PATH" ]; then
+                            NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
+                            echo "  更新 HTTPS URL 为包含 token 的格式..."
+                        else
+                            echo "  ⚠️  无法提取仓库路径，使用 git config 方式"
+                            git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                            NEW_REMOTE_URL=""
+                        fi
                     elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
                         # SSH URL: git@github.com:... -> https://token@github.com/...
                         REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
