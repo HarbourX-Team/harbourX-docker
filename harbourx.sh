@@ -813,7 +813,15 @@ deploy_deploy() {
             
             # 配置 git 使用 token（如果需要）
             if [ -n "\$GITHUB_TOKEN" ]; then
+                # 方法 1: 使用 git config URL 替换
                 git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                # 方法 2: 直接更新远程 URL（更可靠）
+                CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
+                if [ -n "\$CURRENT_REMOTE_URL" ] && echo "\$CURRENT_REMOTE_URL" | grep -qv "\${GITHUB_TOKEN}"; then
+                    # 如果远程 URL 不包含 token，更新它
+                    NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
+                    git remote set-url origin "\$NEW_REMOTE_URL" || true
+                fi
             fi
             
             # 拉取最新代码（使用 main 分支）
@@ -959,7 +967,15 @@ deploy_deploy() {
             
             # 配置 git 使用 token（如果需要）
             if [ -n "\$GITHUB_TOKEN" ]; then
+                # 方法 1: 使用 git config URL 替换
                 git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                # 方法 2: 直接更新远程 URL（更可靠）
+                CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
+                if [ -n "\$CURRENT_REMOTE_URL" ] && echo "\$CURRENT_REMOTE_URL" | grep -qv "\${GITHUB_TOKEN}"; then
+                    # 如果远程 URL 不包含 token，更新它
+                    NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
+                    git remote set-url origin "\$NEW_REMOTE_URL" || true
+                fi
             fi
             
             # 拉取最新代码（使用 main 分支）
