@@ -2,6 +2,119 @@
 
 HarbourX 系统的 Docker 化部署配置、CI/CD 流程和 AWS EC2 部署指南。
 
+---
+
+## ⚠️ 部署前必需：登录信息配置
+
+**在开始部署之前，必须配置以下登录信息：**
+
+### 🔐 必需的登录信息
+
+#### 1. **GitHub 认证**（必需）
+
+部署脚本需要 GitHub 认证来拉取代码。请使用以下**三种方法之一**：
+
+**方法 1: 使用 GitHub CLI（推荐）**
+
+```bash
+# 安装 GitHub CLI（如果未安装）
+# macOS: brew install gh
+# Linux: 参考 https://cli.github.com/
+
+# 登录 GitHub
+gh auth login
+
+# 验证登录状态
+gh auth status
+```
+
+**方法 2: 设置环境变量**
+
+```bash
+# 生成 Personal Access Token
+# 1. 访问 https://github.com/settings/tokens
+# 2. 点击 "Generate new token (classic)"
+# 3. 选择权限: repo (完整仓库访问权限)
+# 4. 复制生成的 token
+
+# 设置环境变量
+export GITHUB_TOKEN='your_github_token_here'
+
+# 验证（可选）
+echo $GITHUB_TOKEN
+```
+
+**方法 3: 在 ~/.zshrc 或 ~/.bashrc 中永久设置**
+
+```bash
+# 添加到 ~/.zshrc 或 ~/.bashrc
+export GITHUB_TOKEN='your_github_token_here'
+
+# 重新加载配置
+source ~/.zshrc  # 或 source ~/.bashrc
+```
+
+#### 2. **SSH 密钥配置**（必需）
+
+部署到 EC2 需要 SSH 密钥：
+
+```bash
+# 设置 SSH 密钥路径
+export SSH_KEY=~/.ssh/harbourX-demo-key-pair.pem
+
+# 或使用脚本默认路径
+# 默认: ~/.ssh/harbourX-demo-key-pair.pem
+```
+
+#### 3. **EC2 连接信息**（必需）
+
+```bash
+# 设置 EC2 主机地址
+export EC2_HOST=13.54.207.94
+
+# 设置 EC2 用户（可选，默认: ec2-user）
+export EC2_USER=ec2-user
+```
+
+### ✅ 验证配置
+
+运行以下命令验证所有必需配置：
+
+```bash
+# 检查 GitHub 登录
+gh auth status || echo "⚠️  GitHub CLI 未登录"
+echo "GITHUB_TOKEN: ${GITHUB_TOKEN:+已设置}" || echo "⚠️  GITHUB_TOKEN 未设置"
+
+# 检查 SSH 密钥
+[ -f "${SSH_KEY:-~/.ssh/harbourX-demo-key-pair.pem}" ] && echo "✅ SSH 密钥存在" || echo "⚠️  SSH 密钥不存在"
+
+# 检查 EC2 配置
+echo "EC2_HOST: ${EC2_HOST:-未设置}"
+echo "EC2_USER: ${EC2_USER:-ec2-user (默认)}"
+```
+
+### 🚨 常见问题
+
+**Q: 为什么需要 GitHub 认证？**
+A: 部署脚本需要从 GitHub 拉取最新代码（Backend 和 Frontend），私有仓库或频繁拉取需要认证。
+
+**Q: 如何获取 GitHub Personal Access Token？**
+A:
+
+1. 访问 https://github.com/settings/tokens
+2. 点击 "Generate new token (classic)"
+3. 选择 `repo` 权限
+4. 复制并保存 token（只显示一次）
+
+**Q: 部署时提示 "GitHub 登录验证失败"？**
+A:
+
+- 检查 token 是否有效：`curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user`
+- 或运行 `gh auth login` 重新登录
+- 确保 token 有 `repo` 权限
+
+---
+
 ## 📋 目录
 
 - [🚀 快速开始](#-快速开始)

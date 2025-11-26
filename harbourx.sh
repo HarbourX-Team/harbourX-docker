@@ -466,7 +466,115 @@ deploy_local() {
 deploy_deploy() {
     echo_info "部署到 EC2 实例: $EC2_HOST"
     
-    # 检查 SSH 密钥
+    # ============================================
+    # 1. 优先检测 GitHub 登录（必需）
+    # ============================================
+    echo_info "步骤 1/5: 检测 GitHub 登录状态..."
+    
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+    GITHUB_AUTH_METHOD=""
+    
+    # 方法 1: 检查环境变量
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  检测到 GITHUB_TOKEN 环境变量"
+        GITHUB_AUTH_METHOD="env"
+    else
+        # 方法 2: 尝试从 gh CLI 获取 token
+        if command -v gh &> /dev/null; then
+            echo_info "  尝试使用 GitHub CLI (gh) 获取 token..."
+            GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo "")
+            if [ -n "$GITHUB_TOKEN" ]; then
+                echo_info "  ✅ 从 gh CLI 获取到 token"
+                GITHUB_AUTH_METHOD="gh_cli"
+            else
+                echo_warn "  ⚠️  gh CLI 未登录或 token 无效"
+            fi
+        else
+            echo_warn "  ⚠️  GitHub CLI (gh) 未安装"
+        fi
+    fi
+    
+    # 验证 GitHub token 是否有效
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  验证 GitHub token 有效性..."
+        # 使用 GitHub API 验证 token
+        if command -v curl &> /dev/null; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/user 2>/dev/null || echo "000")
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+                GITHUB_USER=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/user 2>/dev/null | grep -o '"login":"[^"]*' | cut -d'"' -f4 || echo "unknown")
+                echo_info "  ✅ GitHub token 有效 (用户: $GITHUB_USER)"
+            else
+                echo_error "  ❌ GitHub token 无效或已过期 (HTTP $HTTP_CODE)"
+                echo_error ""
+                echo_error "GitHub 登录验证失败！"
+                echo_error ""
+                echo_error "请使用以下方法之一配置 GitHub 认证："
+                echo_error ""
+                echo_error "方法 1: 设置环境变量"
+                echo_error "  export GITHUB_TOKEN='your_github_token'"
+                echo_error ""
+                echo_error "方法 2: 使用 GitHub CLI 登录"
+                echo_error "  gh auth login"
+                echo_error ""
+                echo_error "方法 3: 生成 Personal Access Token"
+                echo_error "  1. 访问 https://github.com/settings/tokens"
+                echo_error "  2. 生成新 token (需要 repo 权限)"
+                echo_error "  3. 设置环境变量: export GITHUB_TOKEN='your_token'"
+                echo_error ""
+                return 1
+            fi
+        else
+            # 如果没有 curl，尝试使用 gh CLI 验证
+            if command -v gh &> /dev/null; then
+                if gh auth status &> /dev/null; then
+                    echo_info "  ✅ GitHub CLI 已登录"
+                else
+                    echo_error "  ❌ GitHub CLI 未登录"
+                    echo_error ""
+                    echo_error "GitHub 登录验证失败！"
+                    echo_error "请运行: gh auth login"
+                    return 1
+                fi
+            else
+                echo_warn "  ⚠️  无法验证 token（curl 和 gh CLI 都不可用），继续执行..."
+            fi
+        fi
+    else
+        echo_error ""
+        echo_error "❌ 未检测到 GitHub 认证信息！"
+        echo_error ""
+        echo_error "部署脚本需要 GitHub 认证来拉取代码。"
+        echo_error ""
+        echo_error "请使用以下方法之一配置 GitHub 认证："
+        echo_error ""
+        echo_error "方法 1: 设置环境变量"
+        echo_error "  export GITHUB_TOKEN='your_github_token'"
+        echo_error ""
+        echo_error "方法 2: 使用 GitHub CLI 登录"
+        echo_error "  gh auth login"
+        echo_error ""
+        echo_error "方法 3: 生成 Personal Access Token"
+        echo_error "  1. 访问 https://github.com/settings/tokens"
+        echo_error "  2. 生成新 token (需要 repo 权限)"
+        echo_error "  3. 设置环境变量: export GITHUB_TOKEN='your_token'"
+        echo_error ""
+        return 1
+    fi
+    
+    echo_info "✅ GitHub 登录验证通过"
+    echo ""
+    
+    # ============================================
+    # 2. 检查 SSH 密钥
+    # ============================================
+    echo_info "步骤 2/5: 检查 SSH 密钥..."
     if [ ! -f "$SSH_KEY" ]; then
         echo_error "SSH 密钥文件不存在: $SSH_KEY"
         echo_error "请设置 SSH_KEY 环境变量或确保密钥文件存在"
@@ -475,9 +583,13 @@ deploy_deploy() {
     
     # 设置密钥权限
     chmod 400 "$SSH_KEY" 2>/dev/null || true
+    echo_info "✅ SSH 密钥检查通过"
+    echo ""
     
-    # 检查 SSH 连接
-    echo_info "检查 SSH 连接..."
+    # ============================================
+    # 3. 检查 SSH 连接
+    # ============================================
+    echo_info "步骤 3/5: 检查 SSH 连接..."
     if ! ssh -i "$SSH_KEY" -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${EC2_USER}@${EC2_HOST}" "echo '连接成功'" > /dev/null 2>&1; then
         echo_error "无法连接到 EC2 实例"
         echo_error "请检查:"
@@ -486,9 +598,13 @@ deploy_deploy() {
         echo_error "  3. 安全组是否允许 SSH 访问"
         return 1
     fi
+    echo_info "✅ SSH 连接成功"
+    echo ""
     
-    # 上传 harbourX 目录
-    echo_info "上传 harbourX 配置..."
+    # ============================================
+    # 4. 上传 harbourX 配置
+    # ============================================
+    echo_info "步骤 4/5: 上传 harbourX 配置..."
     TAR_FILE="/tmp/harbourx-$(date +%s).tar.gz"
     # 确保使用最新的文件（排除 harbourX-docker 的 .env，但允许 AI-Module 的 .env）
     tar -czf "$TAR_FILE" \
@@ -535,21 +651,11 @@ deploy_deploy() {
     scp -i "$SSH_KEY" "$TAR_FILE" "${EC2_USER}@${EC2_HOST}:~/"
     rm -f "$TAR_FILE"
     
-    # 在 EC2 上部署
-    echo_info "在 EC2 上部署服务..."
-    
-    # 获取 GitHub token（从环境变量或本地 gh CLI）
-    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-    if [ -z "$GITHUB_TOKEN" ]; then
-        # 尝试从 gh CLI 获取 token
-        GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo "")
-    fi
-    
-    if [ -n "$GITHUB_TOKEN" ]; then
-        echo_info "✅ 检测到 GitHub token，将用于拉取代码"
-    else
-        echo_warn "⚠️  未检测到 GitHub token，将使用公开方式拉取代码"
-    fi
+    # ============================================
+    # 5. 在 EC2 上部署服务
+    # ============================================
+    echo_info "步骤 5/5: 在 EC2 上部署服务..."
+    echo_info "使用 GitHub token 拉取代码 (方法: $GITHUB_AUTH_METHOD)"
     
     # 通过 SSH 传递环境变量并执行远程脚本
     ssh -i "$SSH_KEY" "${EC2_USER}@${EC2_HOST}" "GITHUB_TOKEN='$GITHUB_TOKEN' bash -s" << EOF
@@ -622,6 +728,15 @@ deploy_deploy() {
         \$DOCKER_COMPOSE_CMD -f docker-compose.yml down --remove-orphans || true
         # 强制删除可能残留的容器
         docker rm -f harbourx-postgres harbourx-backend harbourx-ai-module harbourx-frontend 2>/dev/null || true
+        
+        # Drop 数据库卷并重新创建（解决 checksum 问题）
+        echo ""
+        echo "⚠️  删除数据库卷并重新创建..."
+        echo "  这将删除所有数据库数据！"
+        # 删除 postgres 数据卷
+        docker volume rm harbourx_postgres_data 2>/dev/null || true
+        docker volume ls | grep postgres_data | awk '{print \$2}' | xargs -r docker volume rm 2>/dev/null || true
+        echo "  ✅ 数据库卷已删除"
         
         # 设置正确的环境变量
         export PROJECT_ROOT=".."
@@ -813,9 +928,37 @@ deploy_deploy() {
         echo "构建并启动服务..."
         export DOCKER_BUILDKIT=1
         export COMPOSE_DOCKER_CLI_BUILD=1
+        
+        # 先启动 postgres，等待它完全启动
+        echo "启动 PostgreSQL 数据库..."
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml up -d postgres
+        
+        # 等待 postgres 完全启动
+        echo "等待 PostgreSQL 启动..."
+        for i in {1..30}; do
+            if docker exec harbourx-postgres pg_isready -U harbourx > /dev/null 2>&1; then
+                echo "  ✅ PostgreSQL 已就绪"
+                break
+            fi
+            if [ \$i -eq 30 ]; then
+                echo "  ⚠️  警告: PostgreSQL 启动超时，但继续执行..."
+            fi
+            sleep 1
+        done
+        
+        # 删除并重新创建数据库（确保干净的环境）
+        echo "删除并重新创建数据库..."
+        docker exec harbourx-postgres psql -U harbourx -c "DROP DATABASE IF EXISTS harbourx;" 2>/dev/null || true
+        docker exec harbourx-postgres psql -U harbourx -c "CREATE DATABASE harbourx;" 2>/dev/null || true
+        echo "  ✅ 数据库已重新创建"
+        
         # 强制重新构建 frontend 和 ai-module（不使用缓存）
-        \$DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache frontend ai-module
-        \$DOCKER_COMPOSE_CMD -f docker-compose.yml up -d --build
+        echo "构建服务镜像..."
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache frontend ai-module backend
+        
+        # 启动所有服务
+        echo "启动所有服务..."
+        \$DOCKER_COMPOSE_CMD -f docker-compose.yml up -d
         
         echo "等待服务启动..."
         sleep 10
