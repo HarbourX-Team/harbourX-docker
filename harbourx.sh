@@ -824,17 +824,16 @@ deploy_deploy() {
                     # 处理各种 HTTPS URL 格式（包括已包含其他认证信息的）
                     if echo "\$CURRENT_REMOTE_URL" | grep -qiE "https://.*github\.com/"; then
                         # HTTPS URL（可能已包含用户名/token）: 提取仓库路径并更新
-                        # 使用更宽松的匹配，处理各种格式
-                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|https://[^/]+github\.com/||" | sed "s|^[^/]*@github\.com/||")
-                        if [ -z "\$REPO_PATH" ]; then
-                            # 如果提取失败，尝试另一种方式
-                            REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|.*github\.com/||" | sed "s|.*github\.com:||")
-                        fi
-                        if [ -n "\$REPO_PATH" ]; then
+                        # 直接提取 github.com/ 之后的部分（仓库路径）
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|.*github\.com[:/]||" | sed "s|^[^/]*@||")
+                        # 清理可能的重复或错误格式
+                        REPO_PATH=\$(echo "\$REPO_PATH" | sed "s|^https://||" | sed "s|^github\.com/||" | sed "s|^github\.com:||")
+                        if [ -n "\$REPO_PATH" ] && echo "\$REPO_PATH" | grep -qE "^[^/]+/[^/]+"; then
+                            # 验证提取的路径格式正确（应该是 owner/repo 格式）
                             NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
                             echo "  更新 HTTPS URL 为包含 token 的格式..."
                         else
-                            echo "  ⚠️  无法提取仓库路径，使用 git config 方式"
+                            echo "  ⚠️  无法正确提取仓库路径，使用 git config 方式"
                             git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
                             NEW_REMOTE_URL=""
                         fi
@@ -1024,17 +1023,16 @@ deploy_deploy() {
                     # 处理各种 HTTPS URL 格式（包括已包含其他认证信息的）
                     if echo "\$CURRENT_REMOTE_URL" | grep -qiE "https://.*github\.com/"; then
                         # HTTPS URL（可能已包含用户名/token）: 提取仓库路径并更新
-                        # 使用更宽松的匹配，处理各种格式
-                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|https://[^/]+github\.com/||" | sed "s|^[^/]*@github\.com/||")
-                        if [ -z "\$REPO_PATH" ]; then
-                            # 如果提取失败，尝试另一种方式
-                            REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|.*github\.com/||" | sed "s|.*github\.com:||")
-                        fi
-                        if [ -n "\$REPO_PATH" ]; then
+                        # 直接提取 github.com/ 之后的部分（仓库路径）
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed -E "s|.*github\.com[:/]||" | sed "s|^[^/]*@||")
+                        # 清理可能的重复或错误格式
+                        REPO_PATH=\$(echo "\$REPO_PATH" | sed "s|^https://||" | sed "s|^github\.com/||" | sed "s|^github\.com:||")
+                        if [ -n "\$REPO_PATH" ] && echo "\$REPO_PATH" | grep -qE "^[^/]+/[^/]+"; then
+                            # 验证提取的路径格式正确（应该是 owner/repo 格式）
                             NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
                             echo "  更新 HTTPS URL 为包含 token 的格式..."
                         else
-                            echo "  ⚠️  无法提取仓库路径，使用 git config 方式"
+                            echo "  ⚠️  无法正确提取仓库路径，使用 git config 方式"
                             git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
                             NEW_REMOTE_URL=""
                         fi
