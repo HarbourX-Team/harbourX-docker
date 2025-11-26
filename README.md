@@ -979,6 +979,77 @@ NODE_ENV=production
 EOF
 ```
 
+#### 步骤 3.5：配置 AWS S3（可选）
+
+如果需要使用 AWS S3 存储文件，需要配置以下信息：
+
+**1. 创建 S3 Bucket**
+
+1. 登录 [AWS Console](https://ap-southeast-2.console.aws.amazon.com/s3/)
+2. 进入 S3 服务
+3. 点击 **Create bucket**
+4. 填写配置：
+   - **Bucket name**: `harbourx-rcti`（或您自定义的名称）
+   - **Region**: `ap-southeast-2`（Sydney，或您选择的区域）
+   - 其他设置保持默认或根据需要调整
+5. 点击 **Create bucket**
+
+**2. 创建 IAM 用户和访问密钥**
+
+1. 进入 [IAM Console](https://console.aws.amazon.com/iam/)
+2. 点击 **Users** → **Create user**
+3. 输入用户名（如 `harbourx-s3-user`）
+4. 选择 **Provide user access to the AWS Management Console**（可选）
+5. 点击 **Next**
+6. 在权限设置中，选择 **Attach policies directly**
+7. 搜索并选择 `AmazonS3FullAccess`（或创建自定义策略，仅授予特定 bucket 的访问权限）
+8. 点击 **Next** → **Create user**
+
+**3. 创建访问密钥（Access Keys）**
+
+1. 在用户列表中，点击刚创建的用户
+2. 切换到 **Security credentials** 标签
+3. 在 **Access keys** 部分，点击 **Create access key**
+4. 选择使用场景（如 **Application running outside AWS**）
+5. 点击 **Next** → **Create access key**
+6. **重要**：立即复制并保存以下信息（只显示一次）：
+   - **Access key ID**（例如：`AKIAIOSFODNN7EXAMPLE`）
+   - **Secret access key**（例如：`wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`）
+
+**4. 获取配置信息**
+
+现在您有了所有需要的 S3 配置信息：
+
+```yaml
+aws:
+  s3:
+    access-key: YOUR_ACCESS_KEY        # 从步骤 3 获取的 Access key ID
+    secret-key: YOUR_SECRET_KEY        # 从步骤 3 获取的 Secret access key
+    region: ap-southeast-2              # S3 bucket 所在的区域
+    bucket-name: harbourx-rcti         # 从步骤 1 创建的 bucket 名称
+```
+
+**5. 配置到环境变量**
+
+将 S3 配置添加到 AI-Module 的 `.env` 文件：
+
+```bash
+cd /opt/AI-Module
+cat >> .env << 'EOF'
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
+AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+AWS_REGION=ap-southeast-2
+AWS_S3_BUCKET_NAME=harbourx-rcti
+EOF
+```
+
+**安全提示**：
+- 不要将访问密钥提交到 Git 仓库
+- 使用环境变量或 AWS Secrets Manager 存储敏感信息
+- 定期轮换访问密钥
+- 使用最小权限原则（仅授予必要的 S3 权限）
+
 #### 步骤 4：启动服务
 
 ```bash
