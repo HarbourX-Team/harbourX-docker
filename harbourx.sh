@@ -813,14 +813,55 @@ deploy_deploy() {
             
             # 配置 git 使用 token（如果需要）
             if [ -n "\$GITHUB_TOKEN" ]; then
-                # 方法 1: 使用 git config URL 替换
-                git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
-                # 方法 2: 直接更新远程 URL（更可靠）
+                # 获取当前远程 URL
                 CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "\$CURRENT_REMOTE_URL" ] && echo "\$CURRENT_REMOTE_URL" | grep -qv "\${GITHUB_TOKEN}"; then
-                    # 如果远程 URL 不包含 token，更新它
-                    NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
-                    git remote set-url origin "\$NEW_REMOTE_URL" || true
+                # 只显示 URL 类型，不显示完整 URL（避免泄露 token）
+                if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://"; then
+                    echo "  当前远程 URL 类型: HTTPS"
+                elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@"; then
+                    echo "  当前远程 URL 类型: SSH"
+                else
+                    echo "  当前远程 URL 类型: 其他"
+                fi
+                
+                # 检查 URL 是否已经包含 token
+                if echo "\$CURRENT_REMOTE_URL" | grep -q "\${GITHUB_TOKEN}"; then
+                    echo "  ✅ 远程 URL 已包含 token"
+                else
+                    # URL 不包含 token，需要更新
+                    if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://github.com/"; then
+                        # HTTPS URL: https://github.com/... -> https://token@github.com/...
+                        NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
+                        echo "  更新 HTTPS URL 为包含 token 的格式..."
+                    elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
+                        # SSH URL: git@github.com:... -> https://token@github.com/...
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
+                        NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
+                        echo "  将 SSH URL 转换为 HTTPS URL（包含 token）..."
+                    else
+                        # 其他格式，尝试使用 git config URL 替换
+                        echo "  使用 git config URL 替换..."
+                        git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                        NEW_REMOTE_URL=""
+                    fi
+                    
+                    # 更新远程 URL
+                    if [ -n "\$NEW_REMOTE_URL" ]; then
+                        if git remote set-url origin "\$NEW_REMOTE_URL"; then
+                            echo "  ✅ 远程 URL 已更新"
+                            # 验证更新后的 URL
+                            UPDATED_URL=\$(git remote get-url origin 2>/dev/null || echo "")
+                            if echo "\$UPDATED_URL" | grep -q "\${GITHUB_TOKEN}"; then
+                                echo "  ✅ 远程 URL 更新验证成功"
+                            else
+                                echo "  ⚠️  远程 URL 更新验证失败，使用 git config 方式"
+                                git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                            fi
+                        else
+                            echo "  ⚠️  远程 URL 更新失败，使用 git config 方式"
+                            git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                        fi
+                    fi
                 fi
             fi
             
@@ -967,14 +1008,55 @@ deploy_deploy() {
             
             # 配置 git 使用 token（如果需要）
             if [ -n "\$GITHUB_TOKEN" ]; then
-                # 方法 1: 使用 git config URL 替换
-                git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
-                # 方法 2: 直接更新远程 URL（更可靠）
+                # 获取当前远程 URL
                 CURRENT_REMOTE_URL=\$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "\$CURRENT_REMOTE_URL" ] && echo "\$CURRENT_REMOTE_URL" | grep -qv "\${GITHUB_TOKEN}"; then
-                    # 如果远程 URL 不包含 token，更新它
-                    NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
-                    git remote set-url origin "\$NEW_REMOTE_URL" || true
+                # 只显示 URL 类型，不显示完整 URL（避免泄露 token）
+                if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://"; then
+                    echo "  当前远程 URL 类型: HTTPS"
+                elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@"; then
+                    echo "  当前远程 URL 类型: SSH"
+                else
+                    echo "  当前远程 URL 类型: 其他"
+                fi
+                
+                # 检查 URL 是否已经包含 token
+                if echo "\$CURRENT_REMOTE_URL" | grep -q "\${GITHUB_TOKEN}"; then
+                    echo "  ✅ 远程 URL 已包含 token"
+                else
+                    # URL 不包含 token，需要更新
+                    if echo "\$CURRENT_REMOTE_URL" | grep -q "^https://github.com/"; then
+                        # HTTPS URL: https://github.com/... -> https://token@github.com/...
+                        NEW_REMOTE_URL=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|https://github.com/|https://\${GITHUB_TOKEN}@github.com/|")
+                        echo "  更新 HTTPS URL 为包含 token 的格式..."
+                    elif echo "\$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
+                        # SSH URL: git@github.com:... -> https://token@github.com/...
+                        REPO_PATH=\$(echo "\$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
+                        NEW_REMOTE_URL="https://\${GITHUB_TOKEN}@github.com/\$REPO_PATH"
+                        echo "  将 SSH URL 转换为 HTTPS URL（包含 token）..."
+                    else
+                        # 其他格式，尝试使用 git config URL 替换
+                        echo "  使用 git config URL 替换..."
+                        git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                        NEW_REMOTE_URL=""
+                    fi
+                    
+                    # 更新远程 URL
+                    if [ -n "\$NEW_REMOTE_URL" ]; then
+                        if git remote set-url origin "\$NEW_REMOTE_URL"; then
+                            echo "  ✅ 远程 URL 已更新"
+                            # 验证更新后的 URL
+                            UPDATED_URL=\$(git remote get-url origin 2>/dev/null || echo "")
+                            if echo "\$UPDATED_URL" | grep -q "\${GITHUB_TOKEN}"; then
+                                echo "  ✅ 远程 URL 更新验证成功"
+                            else
+                                echo "  ⚠️  远程 URL 更新验证失败，使用 git config 方式"
+                                git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                            fi
+                        else
+                            echo "  ⚠️  远程 URL 更新失败，使用 git config 方式"
+                            git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
+                        fi
+                    fi
                 fi
             fi
             
