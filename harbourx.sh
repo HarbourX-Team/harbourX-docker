@@ -787,17 +787,30 @@ deploy_deploy() {
                 git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
             fi
             
-            # 拉取最新代码（优先使用 main，fallback 到 master）
+            # 拉取最新代码（使用 main 分支）
             echo "  从 GitHub 拉取最新代码..."
-            if git fetch origin main 2>/dev/null; then
-                git reset --hard origin/main || true
-                git checkout main 2>/dev/null || true
-            elif git fetch origin master 2>/dev/null; then
-                git reset --hard origin/master || true
-                git checkout master 2>/dev/null || true
-            else
-                echo "  ⚠️  fetch 失败，尝试 pull..."
-                git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+            
+            # 尝试 fetch，如果失败则终止部署
+            if ! git fetch origin main; then
+                echo "  ❌ git fetch 失败，终止部署"
+                echo "  ⚠️  可能的原因："
+                echo "     - GitHub token 权限不足或已过期"
+                echo "     - 网络连接问题"
+                echo "     - 仓库权限问题"
+                echo "  💡 建议：检查 GitHub 认证状态"
+                exit 1
+            fi
+            
+            # 重置到远程 main 分支
+            if ! git reset --hard origin/main; then
+                echo "  ❌ git reset 失败，终止部署"
+                exit 1
+            fi
+            
+            # 确保在 main 分支
+            if ! git checkout main; then
+                echo "  ❌ git checkout 失败，终止部署"
+                exit 1
             fi
             
             # 恢复 git config
@@ -805,8 +818,32 @@ deploy_deploy() {
                 git config --unset url."https://\${GITHUB_TOKEN}@github.com/".insteadOf || true
             fi
             
-            # 显示最新 commit
+            # 验证本地和远程 commit 是否一致
+            # 使用 origin/main 而不是 ls-remote，因为我们已经 fetch 成功了
+            REMOTE_COMMIT=\$(git rev-parse origin/main 2>/dev/null)
+            if [ -z "\$REMOTE_COMMIT" ]; then
+                echo "  ❌ 无法获取远程 commit (origin/main)，终止部署"
+                exit 1
+            fi
+            
+            LOCAL_COMMIT=\$(git rev-parse HEAD 2>/dev/null)
+            if [ -z "\$LOCAL_COMMIT" ]; then
+                echo "  ❌ 无法获取本地 commit，终止部署"
+                exit 1
+            fi
+            
+            if [ "\$LOCAL_COMMIT" != "\$REMOTE_COMMIT" ]; then
+                REMOTE_COMMIT_MSG=\$(git log -1 --oneline "\$REMOTE_COMMIT" 2>/dev/null || echo "\$REMOTE_COMMIT")
+                LOCAL_COMMIT_MSG=\$(git log -1 --oneline 2>/dev/null || echo "\$LOCAL_COMMIT")
+                echo "  ❌ 本地代码与远程不一致，终止部署"
+                echo "  本地 commit: \$LOCAL_COMMIT_MSG"
+                echo "  远程 commit: \$REMOTE_COMMIT_MSG"
+                exit 1
+            fi
+            
+            # 显示成功信息
             LATEST_COMMIT=\$(git log -1 --oneline 2>/dev/null || echo "unknown")
+            echo "  ✅ 代码拉取成功"
             echo "  最新 commit: \$LATEST_COMMIT"
             cd "\$CURRENT_DIR"
         elif [ -d "\$BACKEND_PATH" ]; then
@@ -820,13 +857,25 @@ deploy_deploy() {
             mkdir -p "\$PROJECT_ROOT"
             if [ -n "\$GITHUB_TOKEN" ]; then
                 echo "  使用 GitHub token 克隆..."
-                git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Backend.git "\$BACKEND_DIR" || {
-                    echo "  Token 克隆失败，尝试公开克隆..."
-                    git clone https://github.com/HarbourX-Team/HarbourX-Backend.git "\$BACKEND_DIR" || true
-                }
+                if ! git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Backend.git "\$BACKEND_DIR"; then
+                    echo "  ❌ 使用 token 克隆失败，终止部署"
+                    echo "  ⚠️  可能的原因："
+                    echo "     - GitHub token 权限不足或已过期"
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库权限问题"
+                    echo "  💡 建议：检查 GitHub 认证状态"
+                    exit 1
+                fi
             else
                 echo "  使用公开方式克隆..."
-                git clone https://github.com/HarbourX-Team/HarbourX-Backend.git "\$BACKEND_DIR" || true
+                if ! git clone https://github.com/HarbourX-Team/HarbourX-Backend.git "\$BACKEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    echo "  ⚠️  可能的原因："
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库不存在或不可访问"
+                    echo "  💡 建议：检查网络连接和仓库访问权限"
+                    exit 1
+                fi
             fi
             chown -R \$(whoami):\$(whoami) "\$BACKEND_PATH" 2>/dev/null || true
             cd "\$CURRENT_DIR"
@@ -849,17 +898,30 @@ deploy_deploy() {
                 git config url."https://\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" || true
             fi
             
-            # 拉取最新代码（优先使用 main，fallback 到 master）
+            # 拉取最新代码（使用 main 分支）
             echo "  从 GitHub 拉取最新代码..."
-            if git fetch origin main 2>/dev/null; then
-                git reset --hard origin/main || true
-                git checkout main 2>/dev/null || true
-            elif git fetch origin master 2>/dev/null; then
-                git reset --hard origin/master || true
-                git checkout master 2>/dev/null || true
-            else
-                echo "  ⚠️  fetch 失败，尝试 pull..."
-                git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+            
+            # 尝试 fetch，如果失败则终止部署
+            if ! git fetch origin main; then
+                echo "  ❌ git fetch 失败，终止部署"
+                echo "  ⚠️  可能的原因："
+                echo "     - GitHub token 权限不足或已过期"
+                echo "     - 网络连接问题"
+                echo "     - 仓库权限问题"
+                echo "  💡 建议：检查 GitHub 认证状态"
+                exit 1
+            fi
+            
+            # 重置到远程 main 分支
+            if ! git reset --hard origin/main; then
+                echo "  ❌ git reset 失败，终止部署"
+                exit 1
+            fi
+            
+            # 确保在 main 分支
+            if ! git checkout main; then
+                echo "  ❌ git checkout 失败，终止部署"
+                exit 1
             fi
             
             # 恢复 git config
@@ -867,8 +929,32 @@ deploy_deploy() {
                 git config --unset url."https://\${GITHUB_TOKEN}@github.com/".insteadOf || true
             fi
             
-            # 显示最新 commit
+            # 验证本地和远程 commit 是否一致
+            # 使用 origin/main 而不是 ls-remote，因为我们已经 fetch 成功了
+            REMOTE_COMMIT=\$(git rev-parse origin/main 2>/dev/null)
+            if [ -z "\$REMOTE_COMMIT" ]; then
+                echo "  ❌ 无法获取远程 commit (origin/main)，终止部署"
+                exit 1
+            fi
+            
+            LOCAL_COMMIT=\$(git rev-parse HEAD 2>/dev/null)
+            if [ -z "\$LOCAL_COMMIT" ]; then
+                echo "  ❌ 无法获取本地 commit，终止部署"
+                exit 1
+            fi
+            
+            if [ "\$LOCAL_COMMIT" != "\$REMOTE_COMMIT" ]; then
+                REMOTE_COMMIT_MSG=\$(git log -1 --oneline "\$REMOTE_COMMIT" 2>/dev/null || echo "\$REMOTE_COMMIT")
+                LOCAL_COMMIT_MSG=\$(git log -1 --oneline 2>/dev/null || echo "\$LOCAL_COMMIT")
+                echo "  ❌ 本地代码与远程不一致，终止部署"
+                echo "  本地 commit: \$LOCAL_COMMIT_MSG"
+                echo "  远程 commit: \$REMOTE_COMMIT_MSG"
+                exit 1
+            fi
+            
+            # 显示成功信息
             LATEST_COMMIT=\$(git log -1 --oneline 2>/dev/null || echo "unknown")
+            echo "  ✅ 代码拉取成功"
             echo "  最新 commit: \$LATEST_COMMIT"
             cd "\$CURRENT_DIR"
         elif [ -d "\$FRONTEND_PATH" ]; then
@@ -882,13 +968,25 @@ deploy_deploy() {
             mkdir -p "\$PROJECT_ROOT"
             if [ -n "\$GITHUB_TOKEN" ]; then
                 echo "  使用 GitHub token 克隆..."
-                git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || {
-                    echo "  Token 克隆失败，尝试公开克隆..."
-                    git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
-                }
+                if ! git clone https://\${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR"; then
+                    echo "  ❌ 使用 token 克隆失败，终止部署"
+                    echo "  ⚠️  可能的原因："
+                    echo "     - GitHub token 权限不足或已过期"
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库权限问题"
+                    echo "  💡 建议：检查 GitHub 认证状态"
+                    exit 1
+                fi
             else
                 echo "  使用公开方式克隆..."
-                git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR" || true
+                if ! git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "\$FRONTEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    echo "  ⚠️  可能的原因："
+                    echo "     - 网络连接问题"
+                    echo "     - 仓库不存在或不可访问"
+                    echo "  💡 建议：检查网络连接和仓库访问权限"
+                    exit 1
+                fi
             fi
             chown -R \$(whoami):\$(whoami) "\$FRONTEND_PATH" 2>/dev/null || true
             cd "\$CURRENT_DIR"
