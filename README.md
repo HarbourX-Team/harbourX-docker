@@ -1023,10 +1023,10 @@ EOF
 ```yaml
 aws:
   s3:
-    access-key: YOUR_ACCESS_KEY        # 从步骤 3 获取的 Access key ID
-    secret-key: YOUR_SECRET_KEY        # 从步骤 3 获取的 Secret access key
-    region: ap-southeast-2              # S3 bucket 所在的区域
-    bucket-name: harbourx-rcti         # 从步骤 1 创建的 bucket 名称
+    access-key: YOUR_ACCESS_KEY # 从步骤 3 获取的 Access key ID
+    secret-key: YOUR_SECRET_KEY # 从步骤 3 获取的 Secret access key
+    region: ap-southeast-2 # S3 bucket 所在的区域
+    bucket-name: harbourx-rcti # 从步骤 1 创建的 bucket 名称
 ```
 
 **5. 配置到环境变量**
@@ -1045,6 +1045,7 @@ EOF
 ```
 
 **安全提示**：
+
 - 不要将访问密钥提交到 Git 仓库
 - 使用环境变量或 AWS Secrets Manager 存储敏感信息
 - 定期轮换访问密钥
