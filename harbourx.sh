@@ -61,7 +61,9 @@ HarbourX 统一管理脚本
 
   deploy:
     local         本地部署（检查环境、构建并启动所有服务）
-    deploy        部署到 EC2 实例
+    deploy        部署到 EC2 实例（前端+后端，已废弃，请使用 backend 或 frontend）
+    backend       仅部署后端到 EC2 实例（会重置数据库）
+    frontend      仅部署前端到 EC2 实例
     ssh           SSH 连接到 EC2 实例
     ip            获取 EC2 实例 IP 地址
     setup-git     在 EC2 上设置 Git 仓库
@@ -90,7 +92,9 @@ HarbourX 统一管理脚本
   ./harbourx.sh docker logs backend
   ./harbourx.sh docker copy-env     # 复制 .env 到 AI-Module
   ./harbourx.sh deploy local         # 本地完整部署
-  ./harbourx.sh deploy deploy        # 部署到 EC2
+  ./harbourx.sh deploy backend       # 仅部署后端到 EC2（会重置数据库）
+  ./harbourx.sh deploy frontend      # 仅部署前端到 EC2
+  ./harbourx.sh deploy deploy        # 部署到 EC2（前端+后端，已废弃）
   ./harbourx.sh deploy ssh
   ./harbourx.sh deploy ip
 EOF
@@ -1313,6 +1317,595 @@ EOF
     echo "  - AI模块: http://$EC2_HOST:3000"
 }
 
+# 仅部署后端（包括数据库重置）
+deploy_deploy_backend() {
+    echo_info "部署后端到 EC2 实例: $EC2_HOST"
+    echo_warn "⚠️  注意：此操作会删除现有数据库并重新创建！"
+    
+    # ============================================
+    # 1. 优先检测 GitHub 登录（必需）
+    # ============================================
+    echo_info "步骤 1/5: 检测 GitHub 登录状态..."
+    
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+    GITHUB_AUTH_METHOD=""
+    
+    # 方法 1: 检查环境变量
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  检测到 GITHUB_TOKEN 环境变量"
+        GITHUB_AUTH_METHOD="env"
+    else
+        # 方法 2: 尝试从 gh CLI 获取 token
+        if command -v gh &> /dev/null; then
+            echo_info "  尝试使用 GitHub CLI (gh) 获取 token..."
+            GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo "")
+            if [ -n "$GITHUB_TOKEN" ]; then
+                echo_info "  ✅ 从 gh CLI 获取到 token"
+                GITHUB_AUTH_METHOD="gh_cli"
+            else
+                echo_warn "  ⚠️  gh CLI 未登录或 token 无效"
+            fi
+        else
+            echo_warn "  ⚠️  GitHub CLI (gh) 未安装"
+        fi
+    fi
+    
+    # 验证 GitHub token 是否有效（复用 deploy_deploy 的验证逻辑）
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  验证 GitHub token 有效性..."
+        if command -v curl &> /dev/null; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/user 2>/dev/null || echo "000")
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+                GITHUB_USER=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/user 2>/dev/null | grep -o '"login":"[^"]*' | cut -d'"' -f4 || echo "unknown")
+                echo_info "  ✅ GitHub token 有效 (用户: $GITHUB_USER)"
+                
+                # 检查后端仓库访问权限
+                REPO_CHECK_BACKEND=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/HarbourX-Team/HarbourX-Backend 2>/dev/null || echo "000")
+                
+                if [ "$REPO_CHECK_BACKEND" = "200" ]; then
+                    echo_info "  ✅ 有权限访问后端仓库"
+                else
+                    echo_warn "  ⚠️  无法访问后端仓库 (HTTP $REPO_CHECK_BACKEND)"
+                fi
+            else
+                echo_error "  ❌ GitHub token 无效或已过期 (HTTP $HTTP_CODE)"
+                return 1
+            fi
+        fi
+    else
+        echo_error "❌ 未检测到 GitHub 认证信息！"
+        return 1
+    fi
+    
+    echo_info "✅ GitHub 登录验证通过"
+    echo ""
+    
+    # ============================================
+    # 2. 检查 SSH 密钥
+    # ============================================
+    echo_info "步骤 2/5: 检查 SSH 密钥..."
+    if [ ! -f "$SSH_KEY" ]; then
+        echo_error "SSH 密钥文件不存在: $SSH_KEY"
+        return 1
+    fi
+    chmod 400 "$SSH_KEY" 2>/dev/null || true
+    echo_info "✅ SSH 密钥检查通过"
+    echo ""
+    
+    # ============================================
+    # 3. 检查 SSH 连接
+    # ============================================
+    echo_info "步骤 3/5: 检查 SSH 连接..."
+    if ! ssh -i "$SSH_KEY" -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${EC2_USER}@${EC2_HOST}" "echo '连接成功'" > /dev/null 2>&1; then
+        echo_error "无法连接到 EC2 实例"
+        return 1
+    fi
+    echo_info "✅ SSH 连接成功"
+    echo ""
+    
+    # ============================================
+    # 4. 上传 harbourX 配置（如果需要）
+    # ============================================
+    echo_info "步骤 4/5: 上传 harbourX 配置..."
+    TAR_FILE="/tmp/harbourx-$(date +%s).tar.gz"
+    tar -czf "$TAR_FILE" \
+        --exclude='.git' \
+        --exclude='node_modules' \
+        --exclude='target' \
+        --exclude='dist' \
+        --exclude='build' \
+        --exclude='.env' \
+        --exclude='containerd' \
+        --exclude='*.log' \
+        --exclude='.DS_Store' \
+        --exclude='*.tar.gz' \
+        . 2>/dev/null
+    
+    scp -i "$SSH_KEY" "$TAR_FILE" "${EC2_USER}@${EC2_HOST}:~/"
+    rm -f "$TAR_FILE"
+    echo_info "✅ 配置已上传"
+    echo ""
+    
+    # ============================================
+    # 5. 在 EC2 上部署后端服务
+    # ============================================
+    echo_info "步骤 5/5: 在 EC2 上部署后端服务..."
+    echo_warn "⚠️  将删除现有数据库并重新创建！"
+    
+    TAR_FILE_BASENAME=$(basename "$TAR_FILE")
+    ssh -i "$SSH_KEY" "${EC2_USER}@${EC2_HOST}" "GITHUB_TOKEN='$GITHUB_TOKEN' TAR_FILE_BASENAME='$TAR_FILE_BASENAME' bash -s" << 'EOF'
+        set -e
+        cd ~
+        sudo mkdir -p /opt/harbourx
+        sudo tar -xzf "$TAR_FILE_BASENAME" -C /opt/harbourx 2>/dev/null || true
+        sudo chown -R ${USER}:${USER} /opt/harbourx
+        rm -f "$TAR_FILE_BASENAME"
+        
+        cd /opt/harbourx
+        
+        # 检测实际的 docker 配置目录名
+        # 当前目录应该就是包含 dockerfiles 的目录
+        if [ -d "dockerfiles" ]; then
+            # 当前目录就是 docker 配置目录，使用当前目录名
+            export DOCKER_DIR="$(basename $(pwd))"
+        elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
+            export DOCKER_DIR="harbourX"
+        elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
+            export DOCKER_DIR="harbourx"
+        else
+            # 查找包含 dockerfiles 的目录
+            DOCKER_DIR_FOUND=$(find . -maxdepth 2 -type d -name "dockerfiles" -exec dirname {} \; | head -1 | xargs basename 2>/dev/null)
+            if [ -n "$DOCKER_DIR_FOUND" ] && [ "$DOCKER_DIR_FOUND" != "." ]; then
+                export DOCKER_DIR="$DOCKER_DIR_FOUND"
+            else
+                export DOCKER_DIR="harbourX"
+            fi
+        fi
+        echo "当前目录: $(pwd)"
+        echo "使用 DOCKER_DIR: $DOCKER_DIR"
+        echo "检查 dockerfiles 目录: $(ls -la dockerfiles 2>/dev/null | head -3 || echo 'dockerfiles 不存在')"
+        
+        # 检测 docker compose 命令
+        if command -v docker-compose &> /dev/null; then
+            DOCKER_COMPOSE_CMD="docker-compose"
+        else
+            DOCKER_COMPOSE_CMD="docker compose"
+        fi
+        
+        # 停止后端和数据库服务
+        echo "停止后端和数据库服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml stop backend postgres 2>/dev/null || true
+        docker rm -f harbourx-backend harbourx-postgres 2>/dev/null || true
+        
+        # ⚠️ 删除数据库卷并重新创建
+        echo ""
+        echo "⚠️  删除数据库卷并重新创建..."
+        echo "  这将删除所有数据库数据！"
+        docker volume rm harbourx_postgres_data 2>/dev/null || true
+        docker volume ls | grep postgres_data | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
+        echo "  ✅ 数据库卷已删除"
+        
+        # 设置环境变量
+        export PROJECT_ROOT=".."
+        export DOCKER_DIR="$DOCKER_DIR"
+        FRONTEND_ALLOWED_ORIGINS_VAL="${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
+        export FRONTEND_ALLOWED_ORIGINS="$FRONTEND_ALLOWED_ORIGINS_VAL"
+        export SPRING_APPLICATION_JSON=$(printf '{"frontend":{"allowedOrigins":"%s"}}' "$FRONTEND_ALLOWED_ORIGINS_VAL")
+        
+        # 更新后端代码
+        BACKEND_DIR="${BACKEND_DIR:-HarbourX-Backend}"
+        BACKEND_PATH="$PROJECT_ROOT/$BACKEND_DIR"
+        echo "更新后端代码（从 GitHub 拉取）: $BACKEND_PATH"
+        
+        if [ -d "$BACKEND_PATH/.git" ]; then
+            echo "  后端仓库已存在，拉取最新代码..."
+            cd "$BACKEND_PATH"
+            CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+            echo "  当前分支: $CURRENT_BRANCH"
+            
+            # 配置 git 使用 token
+            if [ -n "$GITHUB_TOKEN" ]; then
+                CURRENT_REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
+                if echo "$CURRENT_REMOTE_URL" | grep -qiE "github\.com[:/]"; then
+                    REPO_PATH=$(echo "$CURRENT_REMOTE_URL" | sed -E "s|.*github\.com[:/]||" | sed "s|^[^/]*@||" | sed "s|^https://||" | sed "s|^github\.com/||" | sed "s|/$||")
+                    if [ -n "$REPO_PATH" ] && echo "$REPO_PATH" | grep -qE "^[^/]+/[^/]+"; then
+                        NEW_REMOTE_URL="https://${GITHUB_TOKEN}@github.com/$REPO_PATH"
+                        git remote set-url origin "$NEW_REMOTE_URL" || exit 1
+                    fi
+                elif echo "$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
+                    REPO_PATH=$(echo "$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
+                    NEW_REMOTE_URL="https://${GITHUB_TOKEN}@github.com/$REPO_PATH"
+                    git remote set-url origin "$NEW_REMOTE_URL" || exit 1
+                fi
+            fi
+            
+            # 拉取最新代码
+            echo "  从 GitHub 拉取最新代码..."
+            if ! git fetch origin main; then
+                echo "  ❌ git fetch 失败，终止部署"
+                exit 1
+            fi
+            if ! git reset --hard origin/main; then
+                echo "  ❌ git reset 失败，终止部署"
+                exit 1
+            fi
+            if ! git checkout main; then
+                echo "  ❌ git checkout 失败，终止部署"
+                exit 1
+            fi
+            
+            LATEST_COMMIT=$(git log -1 --oneline 2>/dev/null || echo "unknown")
+            echo "  ✅ 代码拉取成功"
+            echo "  最新 commit: $LATEST_COMMIT"
+            cd /opt/harbourx
+        elif [ ! -d "$BACKEND_PATH" ]; then
+            echo "  从 GitHub 克隆后端仓库..."
+            cd "$PROJECT_ROOT"
+            if [ -n "$GITHUB_TOKEN" ]; then
+                if ! git clone https://${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Backend.git "$BACKEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    exit 1
+                fi
+            else
+                if ! git clone https://github.com/HarbourX-Team/HarbourX-Backend.git "$BACKEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    exit 1
+                fi
+            fi
+            cd /opt/harbourx
+        fi
+        
+        # 确保在部署目录
+        cd /opt/harbourx
+        
+        # 确保 Docker 可以访问构建上下文
+        # 修复可能的权限问题
+        sudo chown -R $(whoami):$(whoami) . 2>/dev/null || true
+        chmod -R u+rw . 2>/dev/null || true
+        
+        # 确保父目录权限正确（PROJECT_ROOT）
+        if [ -d "$PROJECT_ROOT" ]; then
+            sudo chown -R $(whoami):$(whoami) "$PROJECT_ROOT" 2>/dev/null || true
+            chmod -R u+rw "$PROJECT_ROOT" 2>/dev/null || true
+        fi
+        
+        # 先启动 postgres，等待它完全启动
+        echo "启动 PostgreSQL 数据库..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d postgres
+        
+        # 等待 postgres 完全启动
+        echo "等待 PostgreSQL 启动..."
+        for i in {1..30}; do
+            if docker exec harbourx-postgres pg_isready -U harbourx > /dev/null 2>&1; then
+                echo "  ✅ PostgreSQL 已就绪"
+                break
+            fi
+            if [ $i -eq 30 ]; then
+                echo "  ⚠️  警告: PostgreSQL 启动超时，但继续执行..."
+            fi
+            sleep 1
+        done
+        
+        # 删除并重新创建数据库
+        echo "删除并重新创建数据库..."
+        docker exec harbourx-postgres psql -U harbourx -c "DROP DATABASE IF EXISTS harbourx;" 2>/dev/null || true
+        docker exec harbourx-postgres psql -U harbourx -c "CREATE DATABASE harbourx;" 2>/dev/null || true
+        echo "  ✅ 数据库已重新创建"
+        
+        # 构建并启动后端服务
+        echo "构建后端服务镜像..."
+        export DOCKER_BUILDKIT=1
+        export COMPOSE_DOCKER_CLI_BUILD=1
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache backend
+        
+        echo "启动后端服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d backend
+        
+        echo "等待服务启动..."
+        sleep 10
+        
+        echo "检查服务状态..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml ps backend postgres
+        
+        echo "查看后端日志（最近 20 行）..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml logs --tail=20 backend
+EOF
+    
+    echo_info "后端部署完成！"
+    echo ""
+    echo "访问地址："
+    echo "  - 后端: http://$EC2_HOST:8080"
+}
+
+# 仅部署前端
+deploy_deploy_frontend() {
+    echo_info "部署前端到 EC2 实例: $EC2_HOST"
+    
+    # ============================================
+    # 1. 优先检测 GitHub 登录（必需）
+    # ============================================
+    echo_info "步骤 1/5: 检测 GitHub 登录状态..."
+    
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+    GITHUB_AUTH_METHOD=""
+    
+    # 方法 1: 检查环境变量
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  检测到 GITHUB_TOKEN 环境变量"
+        GITHUB_AUTH_METHOD="env"
+    else
+        # 方法 2: 尝试从 gh CLI 获取 token
+        if command -v gh &> /dev/null; then
+            echo_info "  尝试使用 GitHub CLI (gh) 获取 token..."
+            GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo "")
+            if [ -n "$GITHUB_TOKEN" ]; then
+                echo_info "  ✅ 从 gh CLI 获取到 token"
+                GITHUB_AUTH_METHOD="gh_cli"
+            else
+                echo_warn "  ⚠️  gh CLI 未登录或 token 无效"
+            fi
+        else
+            echo_warn "  ⚠️  GitHub CLI (gh) 未安装"
+        fi
+    fi
+    
+    # 验证 GitHub token 是否有效
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo_info "  验证 GitHub token 有效性..."
+        if command -v curl &> /dev/null; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/user 2>/dev/null || echo "000")
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+                GITHUB_USER=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/user 2>/dev/null | grep -o '"login":"[^"]*' | cut -d'"' -f4 || echo "unknown")
+                echo_info "  ✅ GitHub token 有效 (用户: $GITHUB_USER)"
+                
+                # 检查前端仓库访问权限
+                REPO_CHECK_FRONTEND=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/HarbourX-Team/HarbourX-Frontend 2>/dev/null || echo "000")
+                
+                if [ "$REPO_CHECK_FRONTEND" = "200" ]; then
+                    echo_info "  ✅ 有权限访问前端仓库"
+                else
+                    echo_warn "  ⚠️  无法访问前端仓库 (HTTP $REPO_CHECK_FRONTEND)"
+                fi
+            else
+                echo_error "  ❌ GitHub token 无效或已过期 (HTTP $HTTP_CODE)"
+                return 1
+            fi
+        fi
+    else
+        echo_error "❌ 未检测到 GitHub 认证信息！"
+        return 1
+    fi
+    
+    echo_info "✅ GitHub 登录验证通过"
+    echo ""
+    
+    # ============================================
+    # 2. 检查 SSH 密钥
+    # ============================================
+    echo_info "步骤 2/5: 检查 SSH 密钥..."
+    if [ ! -f "$SSH_KEY" ]; then
+        echo_error "SSH 密钥文件不存在: $SSH_KEY"
+        return 1
+    fi
+    chmod 400 "$SSH_KEY" 2>/dev/null || true
+    echo_info "✅ SSH 密钥检查通过"
+    echo ""
+    
+    # ============================================
+    # 3. 检查 SSH 连接
+    # ============================================
+    echo_info "步骤 3/5: 检查 SSH 连接..."
+    if ! ssh -i "$SSH_KEY" -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${EC2_USER}@${EC2_HOST}" "echo '连接成功'" > /dev/null 2>&1; then
+        echo_error "无法连接到 EC2 实例"
+        return 1
+    fi
+    echo_info "✅ SSH 连接成功"
+    echo ""
+    
+    # ============================================
+    # 4. 上传 harbourX 配置（如果需要）
+    # ============================================
+    echo_info "步骤 4/5: 上传 harbourX 配置..."
+    TAR_FILE="/tmp/harbourx-$(date +%s).tar.gz"
+    tar -czf "$TAR_FILE" \
+        --exclude='.git' \
+        --exclude='node_modules' \
+        --exclude='target' \
+        --exclude='dist' \
+        --exclude='build' \
+        --exclude='.env' \
+        --exclude='containerd' \
+        --exclude='*.log' \
+        --exclude='.DS_Store' \
+        --exclude='*.tar.gz' \
+        . 2>/dev/null
+    
+    scp -i "$SSH_KEY" "$TAR_FILE" "${EC2_USER}@${EC2_HOST}:~/"
+    rm -f "$TAR_FILE"
+    echo_info "✅ 配置已上传"
+    echo ""
+    
+    # ============================================
+    # 5. 在 EC2 上部署前端服务
+    # ============================================
+    echo_info "步骤 5/5: 在 EC2 上部署前端服务..."
+    
+    TAR_FILE_BASENAME=$(basename "$TAR_FILE")
+    ssh -i "$SSH_KEY" "${EC2_USER}@${EC2_HOST}" "GITHUB_TOKEN='$GITHUB_TOKEN' TAR_FILE_BASENAME='$TAR_FILE_BASENAME' bash -s" << 'EOF'
+        set -e
+        cd ~
+        sudo mkdir -p /opt/harbourx
+        sudo tar -xzf "$TAR_FILE_BASENAME" -C /opt/harbourx 2>/dev/null || true
+        sudo chown -R ${USER}:${USER} /opt/harbourx
+        rm -f "$TAR_FILE_BASENAME"
+        
+        cd /opt/harbourx
+        
+        # 检测实际的 docker 配置目录名
+        # 当前目录应该就是包含 dockerfiles 的目录
+        if [ -d "dockerfiles" ]; then
+            # 当前目录就是 docker 配置目录，使用当前目录名
+            export DOCKER_DIR="$(basename $(pwd))"
+        elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
+            export DOCKER_DIR="harbourX"
+        elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
+            export DOCKER_DIR="harbourx"
+        else
+            # 查找包含 dockerfiles 的目录
+            DOCKER_DIR_FOUND=$(find . -maxdepth 2 -type d -name "dockerfiles" -exec dirname {} \; | head -1 | xargs basename 2>/dev/null)
+            if [ -n "$DOCKER_DIR_FOUND" ] && [ "$DOCKER_DIR_FOUND" != "." ]; then
+                export DOCKER_DIR="$DOCKER_DIR_FOUND"
+            else
+                export DOCKER_DIR="harbourX"
+            fi
+        fi
+        echo "当前目录: $(pwd)"
+        echo "使用 DOCKER_DIR: $DOCKER_DIR"
+        echo "检查 dockerfiles 目录: $(ls -la dockerfiles 2>/dev/null | head -3 || echo 'dockerfiles 不存在')"
+        
+        # 检测 docker compose 命令
+        if command -v docker-compose &> /dev/null; then
+            DOCKER_COMPOSE_CMD="docker-compose"
+        else
+            DOCKER_COMPOSE_CMD="docker compose"
+        fi
+        
+        # 停止前端服务
+        echo "停止前端服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml stop frontend 2>/dev/null || true
+        docker rm -f harbourx-frontend 2>/dev/null || true
+        
+        # 设置环境变量
+        export PROJECT_ROOT=".."
+        export DOCKER_DIR="$DOCKER_DIR"
+        
+        # 更新前端代码
+        FRONTEND_DIR="${FRONTEND_DIR:-HarbourX-Frontend}"
+        FRONTEND_PATH="$PROJECT_ROOT/$FRONTEND_DIR"
+        echo "更新前端代码（从 GitHub 拉取）: $FRONTEND_PATH"
+        
+        if [ -d "$FRONTEND_PATH/.git" ]; then
+            echo "  前端仓库已存在，拉取最新代码..."
+            cd "$FRONTEND_PATH"
+            CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+            echo "  当前分支: $CURRENT_BRANCH"
+            
+            # 配置 git 使用 token
+            if [ -n "$GITHUB_TOKEN" ]; then
+                CURRENT_REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
+                if echo "$CURRENT_REMOTE_URL" | grep -qiE "github\.com[:/]"; then
+                    REPO_PATH=$(echo "$CURRENT_REMOTE_URL" | sed -E "s|.*github\.com[:/]||" | sed "s|^[^/]*@||" | sed "s|^https://||" | sed "s|^github\.com/||" | sed "s|/$||")
+                    if [ -n "$REPO_PATH" ] && echo "$REPO_PATH" | grep -qE "^[^/]+/[^/]+"; then
+                        NEW_REMOTE_URL="https://${GITHUB_TOKEN}@github.com/$REPO_PATH"
+                        git remote set-url origin "$NEW_REMOTE_URL" || exit 1
+                    fi
+                elif echo "$CURRENT_REMOTE_URL" | grep -q "^git@github.com:"; then
+                    REPO_PATH=$(echo "$CURRENT_REMOTE_URL" | sed "s|git@github.com:||")
+                    NEW_REMOTE_URL="https://${GITHUB_TOKEN}@github.com/$REPO_PATH"
+                    git remote set-url origin "$NEW_REMOTE_URL" || exit 1
+                fi
+            fi
+            
+            # 拉取最新代码
+            echo "  从 GitHub 拉取最新代码..."
+            if ! git fetch origin main; then
+                echo "  ❌ git fetch 失败，终止部署"
+                exit 1
+            fi
+            if ! git reset --hard origin/main; then
+                echo "  ❌ git reset 失败，终止部署"
+                exit 1
+            fi
+            if ! git checkout main; then
+                echo "  ❌ git checkout 失败，终止部署"
+                exit 1
+            fi
+            
+            LATEST_COMMIT=$(git log -1 --oneline 2>/dev/null || echo "unknown")
+            echo "  ✅ 代码拉取成功"
+            echo "  最新 commit: $LATEST_COMMIT"
+            cd /opt/harbourx
+        elif [ ! -d "$FRONTEND_PATH" ]; then
+            echo "  从 GitHub 克隆前端仓库..."
+            cd "$PROJECT_ROOT"
+            if [ -n "$GITHUB_TOKEN" ]; then
+                if ! git clone https://${GITHUB_TOKEN}@github.com/HarbourX-Team/HarbourX-Frontend.git "$FRONTEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    exit 1
+                fi
+            else
+                if ! git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git "$FRONTEND_DIR"; then
+                    echo "  ❌ 克隆失败，终止部署"
+                    exit 1
+                fi
+            fi
+            cd /opt/harbourx
+        fi
+        
+        # 确保在部署目录
+        cd /opt/harbourx
+        
+        # 确保 Docker 可以访问构建上下文
+        # 修复可能的权限问题
+        sudo chown -R $(whoami):$(whoami) . 2>/dev/null || true
+        chmod -R u+rw . 2>/dev/null || true
+        
+        # 确保父目录权限正确（PROJECT_ROOT）
+        if [ -d "$PROJECT_ROOT" ]; then
+            sudo chown -R $(whoami):$(whoami) "$PROJECT_ROOT" 2>/dev/null || true
+            chmod -R u+rw "$PROJECT_ROOT" 2>/dev/null || true
+        fi
+        
+        # 清理旧的 frontend 镜像
+        echo "清理旧的 frontend 镜像..."
+        docker rmi harbourx-frontend 2>/dev/null || true
+        docker images | grep frontend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+        
+        # 构建并启动前端服务
+        echo "构建前端服务镜像..."
+        export DOCKER_BUILDKIT=1
+        export COMPOSE_DOCKER_CLI_BUILD=1
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache frontend
+        
+        echo "启动前端服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d frontend
+        
+        echo "等待服务启动..."
+        sleep 10
+        
+        echo "检查服务状态..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml ps frontend
+        
+        echo "查看前端日志（最近 20 行）..."
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml logs --tail=20 frontend
+EOF
+    
+    echo_info "前端部署完成！"
+    echo ""
+    echo "访问地址："
+    echo "  - 前端: http://$EC2_HOST"
+}
+
 deploy_ssh() {
     echo_info "SSH 连接到 EC2 实例: $EC2_HOST"
     echo ""
@@ -1688,6 +2281,12 @@ main() {
                     ;;
                 deploy)
                     deploy_deploy
+                    ;;
+                backend)
+                    deploy_deploy_backend
+                    ;;
+                frontend)
+                    deploy_deploy_frontend
                     ;;
                 ssh)
                     deploy_ssh
