@@ -1673,9 +1673,9 @@ deploy_deploy_backend() {
                     echo "  找到迁移脚本: $MIGRATE_SCRIPT"
                     chmod +x "$MIGRATE_SCRIPT"
                     
-                    # 检查迁移脚本所需的工具
+                    # 检查迁移脚本所需的工具（psql 是可选的）
                     MISSING_TOOLS=""
-                    for tool in psql curl jq; do
+                    for tool in curl jq; do
                         if ! command -v $tool &> /dev/null; then
                             MISSING_TOOLS="$MISSING_TOOLS $tool"
                         fi
@@ -1686,6 +1686,10 @@ deploy_deploy_backend() {
                         echo "  提示: 迁移脚本需要这些工具才能运行"
                         echo "  要跳过迁移，设置环境变量: SKIP_MIGRATION=true"
                     else
+                        # psql 是可选的（如果需要从旧数据库迁移）
+                        if ! command -v psql &> /dev/null; then
+                            echo "  ℹ️  psql 未安装，将跳过从旧数据库迁移（如果不需要可忽略）"
+                        fi
                         # 设置迁移脚本的环境变量
                         export API_BASE_URL="http://localhost:8080/api"
                         export LOGIN_EMAIL="${LOGIN_EMAIL:-haimoneySupport@harbourx.com.au}"

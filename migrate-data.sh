@@ -40,7 +40,7 @@ fi
 
 # 检查必需的工具
 MISSING_TOOLS=""
-for tool in psql curl jq; do
+for tool in curl jq; do
     if ! command -v $tool &> /dev/null; then
         MISSING_TOOLS="$MISSING_TOOLS $tool"
     fi
@@ -50,6 +50,12 @@ if [ -n "$MISSING_TOOLS" ]; then
     echo -e "${RED}❌ 缺少必需工具:${MISSING_TOOLS}${NC}"
     echo "   请安装这些工具后再运行迁移脚本"
     exit 1
+fi
+
+# psql 是可选的（如果需要从旧数据库迁移）
+HAS_PSQL=false
+if command -v psql &> /dev/null; then
+    HAS_PSQL=true
 fi
 
 # 检查后端服务是否就绪
