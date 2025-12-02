@@ -1503,16 +1503,88 @@ deploy_deploy_backend() {
         export SPRING_APPLICATION_JSON=$(printf '{"frontend":{"allowedOrigins":"%s"}}' "$FRONTEND_ALLOWED_ORIGINS_VAL")
         
         # 设置 AWS S3 环境变量（必需，否则后端无法启动）
+        # 如果环境变量未设置，尝试从 .env 文件读取
+        if [ -z "$AWS_S3_ACCESS" ] && [ -f .env ]; then
+            AWS_S3_ACCESS=$(grep "^AWS_S3_ACCESS=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+        fi
+        if [ -z "$AWS_S3_SECRET" ] && [ -f .env ]; then
+            AWS_S3_SECRET=$(grep "^AWS_S3_SECRET=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+        fi
+        
+        # 如果仍然是占位符或未设置，提示用户输入
+        if [ -z "$AWS_S3_ACCESS" ] || [ "$AWS_S3_ACCESS" = "PLACEHOLDER_ACCESS_KEY" ]; then
+            echo ""
+            echo "⚠️  AWS S3 凭证未设置或使用占位符值"
+            echo "   RCTI 文件上传功能需要真实的 AWS S3 凭证"
+            echo ""
+            # 检查是否在非交互式环境中（通过环境变量 SKIP_S3_PROMPT 控制）
+            if [ "${SKIP_S3_PROMPT:-false}" = "true" ]; then
+                echo "  ⚠️  跳过交互式设置（SKIP_S3_PROMPT=true），使用占位符值"
+                AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+            else
+                read -p "是否现在设置 AWS S3 凭证？(y/n，默认 n): " SET_S3_CREDS
+                if [ "$SET_S3_CREDS" = "y" ] || [ "$SET_S3_CREDS" = "Y" ]; then
+                    read -p "请输入 AWS S3 Access Key ID: " AWS_S3_ACCESS
+                    read -sp "请输入 AWS S3 Secret Access Key: " AWS_S3_SECRET
+                    echo ""
+                    if [ -n "$AWS_S3_ACCESS" ] && [ -n "$AWS_S3_SECRET" ]; then
+                        echo "  ✅ AWS S3 凭证已设置"
+                    else
+                        echo "  ⚠️  凭证为空，使用占位符值"
+                        AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                        AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+                    fi
+                else
+                    echo "  ⚠️  使用占位符值，RCTI 文件上传功能将无法正常工作"
+                    AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                    AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+                fi
+            fi
+        else
+            echo "  ✅ 使用已配置的 AWS S3 凭证"
+        fi
+        
         export AWS_S3_ACCESS="${AWS_S3_ACCESS:-PLACEHOLDER_ACCESS_KEY}"
         export AWS_S3_SECRET="${AWS_S3_SECRET:-PLACEHOLDER_SECRET_KEY}"
         
         # 确保 .env 文件包含 AWS S3 配置
-        if [ ! -f .env ] || ! grep -q "AWS_S3_ACCESS" .env; then
-            echo "创建/更新 .env 文件..."
-            echo "# AWS S3 Configuration (required for RCTI file upload)" >> .env
-            echo "AWS_S3_ACCESS=${AWS_S3_ACCESS}" >> .env
-            echo "AWS_S3_SECRET=${AWS_S3_SECRET}" >> .env
+        if [ ! -f .env ]; then
+            touch .env
         fi
+        
+        # 更新或添加 AWS S3 配置到 .env 文件
+        # 使用临时文件方式，避免 sed 特殊字符问题
+        TEMP_ENV=$(mktemp)
+        
+        # 如果 .env 文件存在，先复制内容
+        if [ -f .env ]; then
+            cp .env "$TEMP_ENV"
+        fi
+        
+        # 更新或添加 AWS_S3_ACCESS
+        if grep -q "^AWS_S3_ACCESS=" "$TEMP_ENV" 2>/dev/null; then
+            # 更新现有值（使用 awk 避免特殊字符问题）
+            awk -v new_val="$AWS_S3_ACCESS" '/^AWS_S3_ACCESS=/ {print "AWS_S3_ACCESS=" new_val; next} {print}' "$TEMP_ENV" > "${TEMP_ENV}.tmp" && mv "${TEMP_ENV}.tmp" "$TEMP_ENV"
+        else
+            # 添加新值
+            if ! grep -q "^# AWS S3 Configuration" "$TEMP_ENV" 2>/dev/null; then
+                echo "# AWS S3 Configuration (required for RCTI file upload)" >> "$TEMP_ENV"
+            fi
+            echo "AWS_S3_ACCESS=$AWS_S3_ACCESS" >> "$TEMP_ENV"
+        fi
+        
+        # 更新或添加 AWS_S3_SECRET
+        if grep -q "^AWS_S3_SECRET=" "$TEMP_ENV" 2>/dev/null; then
+            # 更新现有值（使用 awk 避免特殊字符问题）
+            awk -v new_val="$AWS_S3_SECRET" '/^AWS_S3_SECRET=/ {print "AWS_S3_SECRET=" new_val; next} {print}' "$TEMP_ENV" > "${TEMP_ENV}.tmp" && mv "${TEMP_ENV}.tmp" "$TEMP_ENV"
+        else
+            # 添加新值
+            echo "AWS_S3_SECRET=$AWS_S3_SECRET" >> "$TEMP_ENV"
+        fi
+        
+        # 将临时文件内容写回 .env
+        mv "$TEMP_ENV" .env
         
         # 确保 docker-compose.yml 包含 AWS S3 环境变量
         if ! grep -q "AWS_S3_ACCESS" docker-compose.yml; then
@@ -1520,6 +1592,16 @@ deploy_deploy_backend() {
             # 在 JWT_SECRET 之后添加 AWS S3 配置
             sed -i.bak '/- JWT_SECRET=\${JWT_SECRET}/a\      # AWS S3 Configuration (required for RCTI file upload)\n      - AWS_S3_ACCESS=\${AWS_S3_ACCESS:-PLACEHOLDER_ACCESS_KEY}\n      - AWS_S3_SECRET=\${AWS_S3_SECRET:-PLACEHOLDER_SECRET_KEY}' docker-compose.yml
             echo "  ✅ docker-compose.yml 已更新"
+        fi
+        
+        # 确保 docker-compose 能够读取 .env 文件
+        # docker-compose 默认会读取 .env 文件，但我们需要确保环境变量被正确传递
+        if [ -f .env ]; then
+            # 从 .env 文件加载变量到当前 shell 环境（供 docker-compose 使用）
+            set -a
+            source .env 2>/dev/null || true
+            set +a
+            echo "  ✅ 已从 .env 文件加载环境变量"
         fi
         
         # 更新后端代码
@@ -1627,6 +1709,26 @@ deploy_deploy_backend() {
         export DOCKER_BUILDKIT=1
         export COMPOSE_DOCKER_CLI_BUILD=1
         $DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache backend
+        
+        # 验证 AWS S3 凭证是否已正确设置
+        echo ""
+        echo "验证 AWS S3 配置..."
+        if [ -f .env ]; then
+            ENV_AWS_ACCESS=$(grep "^AWS_S3_ACCESS=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" | head -1 || echo "")
+            ENV_AWS_SECRET=$(grep "^AWS_S3_SECRET=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" | head -1 || echo "")
+            
+            if [ -n "$ENV_AWS_ACCESS" ] && [ "$ENV_AWS_ACCESS" != "PLACEHOLDER_ACCESS_KEY" ]; then
+                echo "  ✅ AWS S3 凭证已配置（从 .env 文件）"
+                # 确保环境变量已导出
+                export AWS_S3_ACCESS="$ENV_AWS_ACCESS"
+                export AWS_S3_SECRET="$ENV_AWS_SECRET"
+            else
+                echo "  ⚠️  AWS S3 凭证未设置或使用占位符值"
+                echo "     RCTI 文件上传功能将无法正常工作"
+            fi
+        else
+            echo "  ⚠️  .env 文件不存在，使用环境变量或占位符值"
+        fi
         
         echo "启动后端服务..."
         $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d backend
