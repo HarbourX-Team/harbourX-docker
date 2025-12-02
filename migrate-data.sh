@@ -97,8 +97,17 @@ LOGIN_RESPONSE=$(curl -s -X POST "${API_BASE_URL}/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"identityType\":\"EMAIL\",\"identity\":\"${LOGIN_EMAIL}\",\"password\":\"${LOGIN_PASSWORD}\"}" 2>&1)
 
+# 尝试多种可能的 token 字段名
+TOKEN=""
 if echo "$LOGIN_RESPONSE" | jq -e '.token' > /dev/null 2>&1; then
     TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.token')
+elif echo "$LOGIN_RESPONSE" | jq -e '.data.jwt' > /dev/null 2>&1; then
+    TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.data.jwt')
+elif echo "$LOGIN_RESPONSE" | jq -e '.data.token' > /dev/null 2>&1; then
+    TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.data.token')
+fi
+
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
     echo -e "${GREEN}✅ 登录成功${NC}"
 else
     echo -e "${RED}❌ 登录失败${NC}"
