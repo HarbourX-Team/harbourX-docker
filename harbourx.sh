@@ -1502,6 +1502,26 @@ deploy_deploy_backend() {
         export FRONTEND_ALLOWED_ORIGINS="$FRONTEND_ALLOWED_ORIGINS_VAL"
         export SPRING_APPLICATION_JSON=$(printf '{"frontend":{"allowedOrigins":"%s"}}' "$FRONTEND_ALLOWED_ORIGINS_VAL")
         
+        # 设置 AWS S3 环境变量（必需，否则后端无法启动）
+        export AWS_S3_ACCESS="${AWS_S3_ACCESS:-PLACEHOLDER_ACCESS_KEY}"
+        export AWS_S3_SECRET="${AWS_S3_SECRET:-PLACEHOLDER_SECRET_KEY}"
+        
+        # 确保 .env 文件包含 AWS S3 配置
+        if [ ! -f .env ] || ! grep -q "AWS_S3_ACCESS" .env; then
+            echo "创建/更新 .env 文件..."
+            echo "# AWS S3 Configuration (required for RCTI file upload)" >> .env
+            echo "AWS_S3_ACCESS=${AWS_S3_ACCESS}" >> .env
+            echo "AWS_S3_SECRET=${AWS_S3_SECRET}" >> .env
+        fi
+        
+        # 确保 docker-compose.yml 包含 AWS S3 环境变量
+        if ! grep -q "AWS_S3_ACCESS" docker-compose.yml; then
+            echo "更新 docker-compose.yml 添加 AWS S3 环境变量..."
+            # 在 JWT_SECRET 之后添加 AWS S3 配置
+            sed -i.bak '/- JWT_SECRET=\${JWT_SECRET}/a\      # AWS S3 Configuration (required for RCTI file upload)\n      - AWS_S3_ACCESS=\${AWS_S3_ACCESS:-PLACEHOLDER_ACCESS_KEY}\n      - AWS_S3_SECRET=\${AWS_S3_SECRET:-PLACEHOLDER_SECRET_KEY}' docker-compose.yml
+            echo "  ✅ docker-compose.yml 已更新"
+        fi
+        
         # 更新后端代码
         BACKEND_DIR="${BACKEND_DIR:-HarbourX-Backend}"
         BACKEND_PATH="$PROJECT_ROOT/$BACKEND_DIR"
@@ -1612,13 +1632,90 @@ deploy_deploy_backend() {
         $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d backend
         
         echo "等待服务启动..."
-        sleep 10
+        sleep 30
         
         echo "检查服务状态..."
         $DOCKER_COMPOSE_CMD -f docker-compose.yml ps backend postgres
         
         echo "查看后端日志（最近 20 行）..."
         $DOCKER_COMPOSE_CMD -f docker-compose.yml logs --tail=20 backend
+        
+        # 等待服务完全启动（健康检查）
+        echo ""
+        echo "⏳ 等待后端服务完全启动（健康检查）..."
+        MAX_RETRIES=30
+        RETRY_COUNT=0
+        SERVICE_READY=false
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s --max-time 5 "http://localhost:8080/actuator/health" > /dev/null 2>&1; then
+                echo "  ✅ 后端服务已就绪"
+                SERVICE_READY=true
+                break
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "  等待中... ($RETRY_COUNT/$MAX_RETRIES)"
+            sleep 2
+        done
+        
+        if [ "$SERVICE_READY" = false ]; then
+            echo "  ⚠️  警告: 后端服务健康检查超时，跳过数据迁移"
+            echo "  请检查后端日志: $DOCKER_COMPOSE_CMD logs backend"
+        else
+            # 运行数据迁移（可选，通过环境变量控制）
+            if [ "${SKIP_MIGRATION:-false}" != "true" ]; then
+                echo ""
+                echo "🔄 开始数据迁移..."
+                
+                # 检查迁移脚本是否存在
+                MIGRATE_SCRIPT="/opt/harbourx/migrate-data.sh"
+                if [ -f "$MIGRATE_SCRIPT" ]; then
+                    echo "  找到迁移脚本: $MIGRATE_SCRIPT"
+                    chmod +x "$MIGRATE_SCRIPT"
+                    
+                    # 检查迁移脚本所需的工具
+                    MISSING_TOOLS=""
+                    for tool in psql curl jq; do
+                        if ! command -v $tool &> /dev/null; then
+                            MISSING_TOOLS="$MISSING_TOOLS $tool"
+                        fi
+                    done
+                    
+                    if [ -n "$MISSING_TOOLS" ]; then
+                        echo "  ⚠️  缺少必需工具:${MISSING_TOOLS}，跳过数据迁移"
+                        echo "  提示: 迁移脚本需要这些工具才能运行"
+                        echo "  要跳过迁移，设置环境变量: SKIP_MIGRATION=true"
+                    else
+                        # 设置迁移脚本的环境变量
+                        export API_BASE_URL="http://localhost:8080/api"
+                        export LOGIN_EMAIL="${LOGIN_EMAIL:-haimoneySupport@harbourx.com.au}"
+                        export LOGIN_PASSWORD="${LOGIN_PASSWORD:-password}"
+                        export AGGREGATOR_COMPANY_ID="${AGGREGATOR_COMPANY_ID:-1}"
+                        
+                        # 旧数据库配置（可通过环境变量覆盖）
+                        export OLD_DB_HOST="${OLD_DB_HOST:-localhost}"
+                        export OLD_DB_PORT="${OLD_DB_PORT:-5432}"
+                        export OLD_DB_NAME="${OLD_DB_NAME:-haimoney}"
+                        export OLD_DB_USER="${OLD_DB_USER:-postgres}"
+                        export OLD_DB_PASS="${OLD_DB_PASS:-postgres}"
+                        
+                        echo "  运行迁移脚本..."
+                        # 在后台运行迁移，避免阻塞部署
+                        nohup bash "$MIGRATE_SCRIPT" > /tmp/migration.log 2>&1 &
+                        MIGRATION_PID=$!
+                        echo "  迁移脚本已在后台运行 (PID: $MIGRATION_PID)"
+                        echo "  迁移日志: /tmp/migration.log"
+                        echo "  查看进度: tail -f /tmp/migration.log"
+                    fi
+                else
+                    echo "  ⚠️  迁移脚本未找到: $MIGRATE_SCRIPT"
+                    echo "  提示: 如果需要数据迁移，请确保迁移脚本存在于 /opt/harbourx/"
+                fi
+            else
+                echo ""
+                echo "⏭️  跳过数据迁移 (SKIP_MIGRATION=true)"
+            fi
+        fi
 EOF
     
     echo_info "后端部署完成！"

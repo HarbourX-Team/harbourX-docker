@@ -51,6 +51,10 @@ services:
       - DB_USER=${POSTGRES_USER:-harbourx}
       - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
       - JWT_SECRET=${JWT_SECRET}
+      # AWS S3 Configuration (required for RCTI file upload)
+      # Set these in .env file or as environment variables
+      - AWS_S3_ACCESS=${AWS_S3_ACCESS:-PLACEHOLDER_ACCESS_KEY}
+      - AWS_S3_SECRET=${AWS_S3_SECRET:-PLACEHOLDER_SECRET_KEY}
       # CORS allowed origins - can be overridden via environment variable
       # For EC2 deployment, set FRONTEND_ALLOWED_ORIGINS=http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80
       # Use SPRING_APPLICATION_JSON to directly set Spring Boot properties
