@@ -1761,66 +1761,8 @@ deploy_deploy_backend() {
         done
         
         if [ "$SERVICE_READY" = false ]; then
-            echo "  ⚠️  警告: 后端服务健康检查超时，跳过数据迁移"
+            echo "  ⚠️  警告: 后端服务健康检查超时"
             echo "  请检查后端日志: $DOCKER_COMPOSE_CMD logs backend"
-        else
-            # 运行数据迁移（可选，通过环境变量控制）
-            if [ "${SKIP_MIGRATION:-false}" != "true" ]; then
-                echo ""
-                echo "🔄 开始数据迁移..."
-                
-                # 检查迁移脚本是否存在
-                MIGRATE_SCRIPT="/opt/harbourx/migrate-data.sh"
-                if [ -f "$MIGRATE_SCRIPT" ]; then
-                    echo "  找到迁移脚本: $MIGRATE_SCRIPT"
-                    chmod +x "$MIGRATE_SCRIPT"
-                    
-                    # 检查迁移脚本所需的工具（psql 是可选的）
-                    MISSING_TOOLS=""
-                    for tool in curl jq; do
-                        if ! command -v $tool &> /dev/null; then
-                            MISSING_TOOLS="$MISSING_TOOLS $tool"
-                        fi
-                    done
-                    
-                    if [ -n "$MISSING_TOOLS" ]; then
-                        echo "  ⚠️  缺少必需工具:${MISSING_TOOLS}，跳过数据迁移"
-                        echo "  提示: 迁移脚本需要这些工具才能运行"
-                        echo "  要跳过迁移，设置环境变量: SKIP_MIGRATION=true"
-                    else
-                        # psql 是可选的（如果需要从旧数据库迁移）
-                        if ! command -v psql &> /dev/null; then
-                            echo "  ℹ️  psql 未安装，将跳过从旧数据库迁移（如果不需要可忽略）"
-                        fi
-                        # 设置迁移脚本的环境变量
-                        export API_BASE_URL="http://localhost:8080/api"
-                        export LOGIN_EMAIL="${LOGIN_EMAIL:-haimoneySupport@harbourx.com.au}"
-                        export LOGIN_PASSWORD="${LOGIN_PASSWORD:-password}"
-                        export AGGREGATOR_COMPANY_ID="${AGGREGATOR_COMPANY_ID:-1}"
-                        
-                        # 旧数据库配置（可通过环境变量覆盖）
-                        export OLD_DB_HOST="${OLD_DB_HOST:-localhost}"
-                        export OLD_DB_PORT="${OLD_DB_PORT:-5432}"
-                        export OLD_DB_NAME="${OLD_DB_NAME:-haimoney}"
-                        export OLD_DB_USER="${OLD_DB_USER:-postgres}"
-                        export OLD_DB_PASS="${OLD_DB_PASS:-postgres}"
-                        
-                        echo "  运行迁移脚本..."
-                        # 在后台运行迁移，避免阻塞部署
-                        nohup bash "$MIGRATE_SCRIPT" > /tmp/migration.log 2>&1 &
-                        MIGRATION_PID=$!
-                        echo "  迁移脚本已在后台运行 (PID: $MIGRATION_PID)"
-                        echo "  迁移日志: /tmp/migration.log"
-                        echo "  查看进度: tail -f /tmp/migration.log"
-                    fi
-                else
-                    echo "  ⚠️  迁移脚本未找到: $MIGRATE_SCRIPT"
-                    echo "  提示: 如果需要数据迁移，请确保迁移脚本存在于 /opt/harbourx/"
-                fi
-            else
-                echo ""
-                echo "⏭️  跳过数据迁移 (SKIP_MIGRATION=true)"
-            fi
         fi
 EOF
     
