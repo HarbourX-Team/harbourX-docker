@@ -319,13 +319,15 @@ find_existing_broker_group() {
     local name=$1
     local abn=$2
     
-    # 尝试通过 ABN 查找（唯一）
+    # 尝试通过 ABN 查找（唯一，更快）
     if [ -n "$abn" ] && [ "$abn" != "0" ]; then
         # 对 ABN 进行 URL 编码（移除空格，因为 ABN 通常不应该有空格）
         local abn_clean=$(echo "$abn" | tr -d ' ')
         local abn_encoded=$(url_encode "$abn_clean")
+        set +e
         local response=$(call_api "GET" "/company?abn=${abn_encoded}" "" 2>/dev/null)
         local api_exit=$?
+        set -e
         if [ $api_exit -eq 0 ]; then
             local id=$(echo "$response" | jq -r '.data.companies[0].id // empty' 2>/dev/null)
             if [ -n "$id" ] && [ "$id" != "null" ]; then
@@ -335,10 +337,21 @@ find_existing_broker_group() {
         fi
     fi
     
-    # 尝试通过 name 查找
-    local response=$(call_api "GET" "/company?type=BROKER_GROUP" "" 2>/dev/null)
+    # 尝试通过 name 查找（使用超时，避免卡住）
+    set +e
+    local response=$(timeout 15 bash -c "call_api \"GET\" \"/company?type=BROKER_GROUP\" \"\" 2>/dev/null" 2>/dev/null || echo "")
     local api_exit=$?
-    if [ $api_exit -eq 0 ]; then
+    set -e
+    
+    # 如果 timeout 命令不存在，直接调用（macOS 可能没有 timeout）
+    if ! command -v timeout &> /dev/null; then
+        set +e
+        response=$(call_api "GET" "/company?type=BROKER_GROUP" "" 2>/dev/null)
+        api_exit=$?
+        set -e
+    fi
+    
+    if [ $api_exit -eq 0 ] && [ -n "$response" ]; then
         # 对 name 进行 JSON 转义
         local name_escaped=$(echo "$name" | sed 's/"/\\"/g')
         local id=$(echo "$response" | jq -r ".data.companies[] | select(.name == \"$name_escaped\") | .id" 2>/dev/null | head -1)
@@ -577,7 +590,10 @@ if [ "$DIRECT_PAYMENT_COUNT" -gt 0 ] 2>/dev/null; then
     echo "   发现 $DIRECT_PAYMENT_COUNT 个 DIRECT_PAYMENT brokers，需要创建特殊 Broker Group"
     
     # 检查是否已存在 "Direct Payment Brokers" Broker Group
-    DIRECT_PAYMENT_GROUP_ID=$(find_existing_broker_group "Direct Payment Brokers" "1000000000000")
+    # 优先通过 ABN 查找（更快，避免查询所有 broker groups）
+    set +e
+    DIRECT_PAYMENT_GROUP_ID=$(find_existing_broker_group "Direct Payment Brokers" "1000000000000" 2>/dev/null || echo "")
+    set -e
     
     if [ -z "$DIRECT_PAYMENT_GROUP_ID" ]; then
         echo "   创建 'Direct Payment Brokers' Broker Group..."
@@ -935,10 +951,10 @@ if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
             --arg deduct "$deduct" \
             --arg account_name "$account_name" \
             '{} + 
-            (if $address != "" then {address: $address} else {} end) +
-            (if $phone != "" then {phone: $phone} else {} end) +
-            (if $deduct != "" then {deduct: ($deduct == "true" or $deduct == "t")} else {} end) +
-            (if $account_name != "" then {accountName: $account_name} else {} end)')
+            (if $address != "" and $address != "NULL" then {address: $address} else {} end) +
+            (if $phone != "" and $phone != "NULL" then {phone: $phone} else {} end) +
+            (if $deduct != "" and $deduct != "NULL" and $deduct != "false" then {deduct: ($deduct == "true" or $deduct == "t")} else {} end) +
+            (if $account_name != "" and $account_name != "NULL" then {accountName: $account_name} else {} end)')
         
         # Build JSON payload
         json_payload=$(jq -n \
