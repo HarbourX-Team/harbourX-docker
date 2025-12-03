@@ -740,8 +740,8 @@ if [ "$BROKERS_COUNT" -gt 0 ]; then
             continue
         fi
         
-        # 生成 CRN（不使用 unique_reference）
-        crn="CRN_BROKER_${old_id}"
+        # 生成 CRN（老系统没有 CRN，使用假的 CRN "123" + 后缀确保唯一性）
+        crn="123_${old_id}"
         
         # Build JSON payload
         json_payload=$(jq -n \
@@ -919,23 +919,22 @@ if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
             continue
         fi
         
-        # 生成 CRN（不使用 unique_reference）
-        crn="CRN_SUB_BROKER_${old_id}"
+        # 生成 CRN（老系统没有 CRN，使用假的 CRN "123" + 后缀确保唯一性）
+        crn="123_SUB_${old_id}"
         
         # 清理 BSB 和 account number（移除非数字字符）
         bsb_clean=$(echo "$bsb_number" | tr -d -c '0-9')
         account_clean=$(echo "$account_number" | tr -d -c '0-9')
         
-        # 构建 extra_info JSON（包含 abn, address, phone, deduct, account_name）
+        # 构建 extra_info JSON（不包含 abn，只包含 address, phone, deduct, account_name）
         # 注意：bsb_number 和 account_number 现在直接作为字段，不再放入 extra_info
+        # 注意：abn 不迁移（按照用户要求）
         extra_info_json=$(jq -n \
-            --arg abn "$abn" \
             --arg address "$address" \
             --arg phone "$phone" \
             --arg deduct "$deduct" \
             --arg account_name "$account_name" \
             '{} + 
-            (if $abn != "" then {abn: $abn} else {} end) +
             (if $address != "" then {address: $address} else {} end) +
             (if $phone != "" then {phone: $phone} else {} end) +
             (if $deduct != "" then {deduct: ($deduct == "true" or $deduct == "t")} else {} end) +
