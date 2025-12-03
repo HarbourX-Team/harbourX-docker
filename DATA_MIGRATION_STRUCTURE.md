@@ -131,8 +131,8 @@ WHERE type = 2 AND deleted IS NULL;
 | `fee_model`         | INT       | Fee Model ID                | ✅       | 待实现              |
 | `deduct`            | BOOL      | 是否扣除                    | ✅       | 放入 extra_info     |
 | `account_name`      | STRING    | 账户名称                    | ❌       | 放入 extra_info     |
-| `bsb_number`        | STRING    | BSB 号码                    | ❌       | **放入 extra_info** |
-| `account_number`    | STRING    | 账户号码                    | ❌       | **放入 extra_info** |
+| `bsb_number`        | STRING    | BSB 号码                    | ❌       | **直接映射到 bankAccountBsb 字段** |
+| `account_number`    | STRING    | 账户号码                    | ❌       | **直接映射到 bankAccountNumber 字段** |
 | `unique_reference`  | STRING    | 唯一引用号                  | ✅       | **不迁移**          |
 | `created`           | TIMESTAMP | 创建时间                    | ✅       | -                   |
 | `updated`           | TIMESTAMP | 更新时间                    | ✅       | -                   |
@@ -148,8 +148,8 @@ WHERE type = 2 AND deleted IS NULL;
 - **`sub_broker` 表** → 新系统 **`DIRECT_PAYMENT` broker**
   - 使用 `sub_broker.broker_group_id` 映射到新系统的 broker_group_id
   - 使用 `sub_broker.email`（如果为空，从 `sub_broker.name` 生成）
-  - `bsb_number` 和 `account_number` **放入 `extra_info` JSON 字段**
-  - `abn`, `address`, `phone`, `deduct`, `account_name` 也放入 `extra_info` JSON 字段
+  - `bsb_number` 和 `account_number` **直接映射到 `bankAccountBsb` 和 `bankAccountNumber` 字段**（不放入 extra_info）
+  - `abn`, `address`, `phone`, `deduct`, `account_name` 放入 `extra_info` JSON 字段
   - `unique_reference` **不迁移**
 - **特殊情况**：
   - 如果 `broker.sub_broker_id != 0`，表示该 broker 关联到一个 sub_broker
@@ -181,25 +181,25 @@ WHERE deleted IS NULL
 
 **表名**: `brokers`
 
-| 字段名        | 类型      | 说明                                                | 是否必需 | 迁移来源                                                                    |
-| ------------- | --------- | --------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
-| `id`          | BIGINT    | 主键 ID                                             | ✅       | 新生成                                                                      |
-| `user_id`     | BIGINT    | 关联用户 ID（可选）                                 | ❌       | -                                                                           |
-| `email`       | VARCHAR   | 邮箱（唯一）                                        | ✅       | `sub_broker.email` 或从 `name` 生成                                         |
-| `type`        | SMALLINT  | Broker 类型：1=DIRECT_PAYMENT, 2=NON_DIRECT_PAYMENT | ✅       | `broker`→NON_DIRECT_PAYMENT, `sub_broker`→DIRECT_PAYMENT                    |
-| `infinity_id` | BIGINT    | Infinity ID（可选）                                 | ❌       | `broker.infinity_id` 或 `sub_broker.infinity_id`                            |
-| `acl`         | VARCHAR   | ACL 权限（可选）                                    | ❌       | -                                                                           |
-| `crn`         | VARCHAR   | CRN 号码（唯一）                                    | ✅       | 生成（格式：`CRN_{old_id}` 或 `{unique_reference}_{old_id}`）               |
-| `extra_info`  | JSONB     | 额外信息（JSON）                                    | ❌       | 包含 `bsb_number`, `account_number`, `abn`, `address`, `phone`, `deduct` 等 |
-| `created_at`  | TIMESTAMP | 创建时间                                            | ✅       | 新生成                                                                      |
-| `updated_at`  | TIMESTAMP | 更新时间                                            | ✅       | 新生成                                                                      |
+| 字段名                | 类型      | 说明                                                | 是否必需 | 迁移来源                                                                    |
+| --------------------- | --------- | --------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
+| `id`                  | BIGINT    | 主键 ID                                             | ✅       | 新生成                                                                      |
+| `user_id`             | BIGINT    | 关联用户 ID（可选）                                 | ❌       | -                                                                           |
+| `email`               | VARCHAR   | 邮箱（唯一）                                        | ✅       | `sub_broker.email` 或从 `name` 生成                                         |
+| `type`                | SMALLINT  | Broker 类型：1=DIRECT_PAYMENT, 2=NON_DIRECT_PAYMENT | ✅       | `broker`→NON_DIRECT_PAYMENT, `sub_broker`→DIRECT_PAYMENT                    |
+| `infinity_id`         | BIGINT    | Infinity ID（可选）                                 | ❌       | `broker.infinity_id` 或 `sub_broker.infinity_id`                            |
+| `acl`                 | VARCHAR   | ACL 权限（可选）                                    | ❌       | -                                                                           |
+| `crn`                 | VARCHAR   | CRN 号码（唯一）                                    | ✅       | 生成（格式：`CRN_BROKER_{old_id}` 或 `CRN_SUB_BROKER_{old_id}`）            |
+| `bank_account_bsb`    | INTEGER   | BSB 号码（可选，仅 DIRECT_PAYMENT）                 | ❌       | `sub_broker.bsb_number`（直接字段，不放入 extra_info）                      |
+| `bank_account_number` | INTEGER   | 银行账户号码（可选，仅 DIRECT_PAYMENT）              | ❌       | `sub_broker.account_number`（直接字段，不放入 extra_info）                   |
+| `extra_info`          | JSONB     | 额外信息（JSON）                                    | ❌       | 包含 `abn`, `address`, `phone`, `deduct`, `accountName` 等（不包含 bsb/account） |
+| `created_at`          | TIMESTAMP | 创建时间                                            | ✅       | 新生成                                                                      |
+| `updated_at`          | TIMESTAMP | 更新时间                                            | ✅       | 新生成                                                                      |
 
 **`extra_info` JSON 结构示例**（对于 sub_broker）:
 
 ```json
 {
-  "bsbNumber": "123456",
-  "accountNumber": "12345678",
   "abn": "12345678901",
   "address": "123 Street, City",
   "phone": "+61 2 1234 5678",
@@ -207,6 +207,8 @@ WHERE deleted IS NULL
   "accountName": "Account Name"
 }
 ```
+
+**注意**: `bsb_number` 和 `account_number` 现在作为直接字段 `bank_account_bsb` 和 `bank_account_number`，不再存储在 `extra_info` 中。
 
 **关联表**: `broker_group_brokers`
 
@@ -230,6 +232,15 @@ WHERE deleted IS NULL
   "crn": "CRN123456",
   "brokerGroupId": 1, // 必需，即使是 DIRECT_PAYMENT
   "infinityId": 12345, // 可选
+  "bankAccountBsb": 123456, // 可选，仅 DIRECT_PAYMENT（来自 sub_broker.bsb_number）
+  "bankAccountNumber": 12345678, // 可选，仅 DIRECT_PAYMENT（来自 sub_broker.account_number）
+  "extraInfo": { // 可选，仅 DIRECT_PAYMENT
+    "abn": "12345678901",
+    "address": "123 Street, City",
+    "phone": "+61 2 1234 5678",
+    "deduct": true,
+    "accountName": "Account Name"
+  },
   "acl": "ACL string" // 可选
 }
 ```
@@ -677,13 +688,13 @@ WHERE deleted IS NULL;
 | `name`             | -                        | 如果 email 为空，用于生成 email          |
 | `broker_group_id`  | `brokerGroupId`          | 映射到新系统的 Broker Group ID           |
 | `infinity_id`      | `infinityId`             | 直接映射（可选）                         |
-| `bsb_number`       | `bankAccountBsb`         | 清理非数字字符，转换为整数，作为直接字段 |
-| `account_number`   | `bankAccountNumber`      | 清理非数字字符，转换为整数，作为直接字段 |
-| `abn`              | `extra_info.abn`         | 放入 extra_info JSON（可选）             |
-| `address`          | `extra_info.address`     | 放入 extra_info JSON（可选）             |
-| `phone`            | `extra_info.phone`       | 放入 extra_info JSON（可选）             |
-| `deduct`           | `extra_info.deduct`      | 放入 extra_info JSON（可选）             |
-| `account_name`     | `extra_info.accountName` | 放入 extra_info JSON（可选）             |
+| `bsb_number`       | `bankAccountBsb`         | 清理非数字字符，转换为整数，作为**直接字段**（不放入 extra_info） |
+| `account_number`   | `bankAccountNumber`      | 清理非数字字符，转换为整数，作为**直接字段**（不放入 extra_info） |
+| `abn`              | `extra_info.abn`         | 放入 extra_info JSON（可选）                                       |
+| `address`          | `extra_info.address`     | 放入 extra_info JSON（可选）                                       |
+| `phone`            | `extra_info.phone`       | 放入 extra_info JSON（可选）                                       |
+| `deduct`           | `extra_info.deduct`      | 放入 extra_info JSON（可选）                                       |
+| `account_name`     | `extra_info.accountName` | 放入 extra_info JSON（可选）                                       |
 | `unique_reference` | -                        | **不迁移**                               |
 | -                  | `type`                   | `DIRECT_PAYMENT`                         |
 | -                  | `crn`                    | 生成：`CRN_SUB_BROKER_{old_id}`          |
@@ -934,45 +945,41 @@ done < broker_groups.csv
 
 ### Broker 迁移
 
+#### NON_DIRECT_PAYMENT Broker（来自 `broker` 表）
+
 ```bash
-# 1. 从老系统导出
+# 1. 从老系统导出 broker 表数据
 psql -h $OLD_DB_HOST -p $OLD_DB_PORT -U $OLD_DB_USER -d $OLD_DB_NAME \
-  -c "SELECT id, email, broker_group_id, sub_broker_id,
-      infinity_id, acl, unique_reference
-      FROM brokers
-      WHERE deleted IS NULL" \
+  -c "SELECT id, name, broker_group_id, infinity_id
+      FROM broker
+      WHERE deleted IS NULL 
+        AND (sub_broker_id IS NULL OR sub_broker_id = 0)
+        AND (broker_group_id IS NOT NULL AND broker_group_id != 0)" \
   -t -A -F"," > brokers.csv
 
 # 2. 转换为新系统格式并导入
-while IFS=',' read -r old_id email broker_group_id sub_broker_id infinity_id acl crn; do
-  # 判断类型
-  if [ "$sub_broker_id" != "0" ] && [ -n "$sub_broker_id" ]; then
-    type="DIRECT_PAYMENT"
-  elif [ "$broker_group_id" = "0" ] || [ -z "$broker_group_id" ]; then
-    type="DIRECT_PAYMENT"
-    broker_group_id=$DIRECT_PAYMENT_GROUP_ID  # 使用特殊组 ID
-  else
-    type="NON_DIRECT_PAYMENT"
-  fi
-
+while IFS=',' read -r old_id name broker_group_id infinity_id; do
+  # 从 name 生成 email
+  name_clean=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | head -c 40)
+  email="${name_clean}_${old_id}@migrated.local"
+  crn="CRN_BROKER_${old_id}"
+  
   # 映射 broker_group_id
   new_broker_group_id=$(grep "^${broker_group_id}:" id_mapping.txt | cut -d: -f2)
 
   # 构建 JSON
   json=$(jq -n \
     --arg email "$email" \
-    --arg type "$type" \
+    --arg type "NON_DIRECT_PAYMENT" \
     --arg crn "$crn" \
     --argjson broker_group_id "$new_broker_group_id" \
     --argjson infinity_id "${infinity_id:-null}" \
-    --arg acl "${acl:-}" \
     '{
       email: $email,
       type: $type,
       crn: $crn,
       brokerGroupId: $broker_group_id
-    } + (if $infinity_id != "null" then {infinityId: $infinity_id} else {} end) +
-      (if $acl != "" then {acl: $acl} else {} end)')
+    } + (if $infinity_id != "null" and $infinity_id != "0" then {infinityId: $infinity_id} else {} end)')
 
   # 调用 API
   curl -X POST "$API_BASE_URL/broker" \
@@ -980,6 +987,78 @@ while IFS=',' read -r old_id email broker_group_id sub_broker_id infinity_id acl
     -H "Content-Type: application/json" \
     -d "$json"
 done < brokers.csv
+```
+
+#### DIRECT_PAYMENT Broker（来自 `sub_broker` 表）
+
+```bash
+# 1. 从老系统导出 sub_broker 表数据
+psql -h $OLD_DB_HOST -p $OLD_DB_PORT -U $OLD_DB_USER -d $OLD_DB_NAME \
+  -c "SELECT id, email, name, broker_group_id, infinity_id,
+      bsb_number, account_number, abn, address, phone, deduct, account_name
+      FROM sub_broker
+      WHERE deleted IS NULL" \
+  -t -A -F"," > sub_brokers.csv
+
+# 2. 转换为新系统格式并导入
+while IFS=',' read -r old_id email name broker_group_id infinity_id \
+    bsb_number account_number abn address phone deduct account_name; do
+  
+  # 处理 email：如果为空，从 name 生成
+  if [ -z "$email" ]; then
+    name_clean=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | head -c 40)
+    email="${name_clean}_${old_id}@migrated.local"
+  fi
+  
+  crn="CRN_SUB_BROKER_${old_id}"
+  
+  # 清理 BSB 和 account number
+  bsb_clean=$(echo "$bsb_number" | tr -d -c '0-9')
+  account_clean=$(echo "$account_number" | tr -d -c '0-9')
+  
+  # 映射 broker_group_id
+  new_broker_group_id=$(grep "^${broker_group_id}:" id_mapping.txt | cut -d: -f2)
+  
+  # 构建 extra_info JSON（不包含 bsb_number 和 account_number）
+  extra_info=$(jq -n \
+    --arg abn "$abn" \
+    --arg address "$address" \
+    --arg phone "$phone" \
+    --arg deduct "$deduct" \
+    --arg account_name "$account_name" \
+    '{} + 
+    (if $abn != "" then {abn: $abn} else {} end) +
+    (if $address != "" then {address: $address} else {} end) +
+    (if $phone != "" then {phone: $phone} else {} end) +
+    (if $deduct != "" then {deduct: ($deduct == "true" or $deduct == "t")} else {} end) +
+    (if $account_name != "" then {accountName: $account_name} else {} end)')
+
+  # 构建 JSON（bsb_number 和 account_number 作为直接字段）
+  json=$(jq -n \
+    --arg email "$email" \
+    --arg type "DIRECT_PAYMENT" \
+    --arg crn "$crn" \
+    --argjson broker_group_id "$new_broker_group_id" \
+    --argjson infinity_id "${infinity_id:-null}" \
+    --arg bsb_str "$bsb_clean" \
+    --arg account_str "$account_clean" \
+    --argjson extra_info "$extra_info" \
+    '{
+      email: $email,
+      type: $type,
+      crn: $crn,
+      brokerGroupId: $broker_group_id
+    } + (if $infinity_id != "null" and $infinity_id != "0" then {infinityId: $infinity_id} else {} end) +
+      (if $bsb_str != "" then {bankAccountBsb: ($bsb_str | tonumber)} else {} end) +
+      (if $account_str != "" then {bankAccountNumber: ($account_str | tonumber)} else {} end) +
+      (if ($extra_info | length) > 0 then {extraInfo: $extra_info} else {} end)')
+
+  # 调用 API
+  curl -X POST "$API_BASE_URL/broker" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$json"
+done < sub_brokers.csv
 ```
 
 ---
@@ -1005,7 +1084,10 @@ done < brokers.csv
 ### 核心实体
 
 1. **Broker Group**: 老系统的 `companies` (type=2) → 新系统的 `companies` (type=2)
-2. **Broker**: 老系统的 `brokers` → 新系统的 `brokers`
+2. **Broker**: 
+   - 老系统的 `broker` 表 → 新系统的 `NON_DIRECT_PAYMENT` brokers
+   - 老系统的 `sub_broker` 表 → 新系统的 `DIRECT_PAYMENT` brokers
+   - **重要**: `sub_broker` 的 `bsb_number` 和 `account_number` 直接映射到 `bankAccountBsb` 和 `bankAccountNumber` 字段（不放入 extra_info）
 3. **类型判断**: 根据 `sub_broker_id` 和 `broker_group_id` 判断 `DIRECT_PAYMENT` 或 `NON_DIRECT_PAYMENT`
 4. **关联关系**: 通过 `aggregator_broker_groups` 和 `broker_group_brokers` 表维护
 
