@@ -41,7 +41,7 @@
 
 ```sql
 SELECT id, name, abn, account_name, bsb_number, account_number,
-       unique_reference, email, phone, address, infinity_id
+       email, phone, address, infinity_id
 FROM companies
 WHERE type = 2 AND deleted IS NULL;
 ```
@@ -59,7 +59,6 @@ WHERE type = 2 AND deleted IS NULL;
 | `bank_account_name`   | VARCHAR   | 银行账户名称               | ✅       |
 | `bank_account_bsb`    | INTEGER   | BSB 号码                   | ✅       |
 | `bank_account_number` | INTEGER   | 银行账户号码               | ✅       |
-| `crn`                 | VARCHAR   | CRN 号码（唯一）           | ✅       |
 | `acl`                 | VARCHAR   | ACL 权限（可选）           | ❌       |
 | `extra_info`          | JSONB     | 额外信息（JSON）           | ❌       |
 | `created_at`          | TIMESTAMP | 创建时间                   | ✅       |
@@ -85,7 +84,6 @@ WHERE type = 2 AND deleted IS NULL;
   "bankAccountName": "Bank Account Name",
   "bankAccountBsb": 123456,
   "bankAccountNumber": 12345678,
-  "crn": "CRN123456",
   "aggregatorCompanyId": 1,
   "email": "email@example.com", // 可选
   "phoneNumber": "+61 2 1234 5678", // 可选
@@ -648,7 +646,7 @@ WHERE deleted IS NULL;
 | `account_name`     | `bankAccountName`          | 直接映射，如果为空使用默认值                       |
 | `bsb_number`       | `bankAccountBsb`           | 清理非数字字符，转换为整数                         |
 | `account_number`   | `bankAccountNumber`        | 清理非数字字符，转换为整数                         |
-| `unique_reference` | `crn`                      | 直接映射，如果为空生成 `CRN_{old_id}`              |
+| `unique_reference` | -                          | **不迁移**（companies 表不再有 crn 字段）          |
 | `email`            | `email` (extra_info)       | 可选，放入 extra_info                              |
 | `phone`            | `phoneNumber` (extra_info) | 可选，放入 extra_info                              |
 | `address`          | `address` (extra_info)     | 可选，放入 extra_info                              |
@@ -672,23 +670,23 @@ WHERE deleted IS NULL;
 
 #### 从 `sub_broker` 表迁移（→ DIRECT_PAYMENT）
 
-| 老系统字段         | 新系统字段                 | 转换规则                           |
-| ------------------ | -------------------------- | ---------------------------------- |
-| `id`               | -                          | 不迁移，使用新 ID                  |
-| `email`            | `email`                    | 直接映射（如果为空，从 name 生成） |
-| `name`             | -                          | 如果 email 为空，用于生成 email    |
-| `broker_group_id`  | `brokerGroupId`            | 映射到新系统的 Broker Group ID     |
-| `infinity_id`      | `infinityId`               | 直接映射（可选）                   |
-| `bsb_number`       | `extra_info.bsbNumber`     | **放入 extra_info JSON**           |
-| `account_number`   | `extra_info.accountNumber` | **放入 extra_info JSON**           |
-| `abn`              | `extra_info.abn`           | 放入 extra_info JSON（可选）       |
-| `address`          | `extra_info.address`       | 放入 extra_info JSON（可选）       |
-| `phone`            | `extra_info.phone`         | 放入 extra_info JSON（可选）       |
-| `deduct`           | `extra_info.deduct`        | 放入 extra_info JSON（可选）       |
-| `account_name`     | `extra_info.accountName`   | 放入 extra_info JSON（可选）       |
-| `unique_reference` | -                          | **不迁移**                         |
-| -                  | `type`                     | `DIRECT_PAYMENT`                   |
-| -                  | `crn`                      | 生成：`CRN_SUB_BROKER_{old_id}`    |
+| 老系统字段         | 新系统字段               | 转换规则                                 |
+| ------------------ | ------------------------ | ---------------------------------------- |
+| `id`               | -                        | 不迁移，使用新 ID                        |
+| `email`            | `email`                  | 直接映射（如果为空，从 name 生成）       |
+| `name`             | -                        | 如果 email 为空，用于生成 email          |
+| `broker_group_id`  | `brokerGroupId`          | 映射到新系统的 Broker Group ID           |
+| `infinity_id`      | `infinityId`             | 直接映射（可选）                         |
+| `bsb_number`       | `bankAccountBsb`         | 清理非数字字符，转换为整数，作为直接字段 |
+| `account_number`   | `bankAccountNumber`      | 清理非数字字符，转换为整数，作为直接字段 |
+| `abn`              | `extra_info.abn`         | 放入 extra_info JSON（可选）             |
+| `address`          | `extra_info.address`     | 放入 extra_info JSON（可选）             |
+| `phone`            | `extra_info.phone`       | 放入 extra_info JSON（可选）             |
+| `deduct`           | `extra_info.deduct`      | 放入 extra_info JSON（可选）             |
+| `account_name`     | `extra_info.accountName` | 放入 extra_info JSON（可选）             |
+| `unique_reference` | -                        | **不迁移**                               |
+| -                  | `type`                   | `DIRECT_PAYMENT`                         |
+| -                  | `crn`                    | 生成：`CRN_SUB_BROKER_{old_id}`          |
 
 ### Broker Type 判断逻辑
 
@@ -732,7 +730,6 @@ WHERE deleted IS NULL
 
 - `name` 必须唯一
 - `abn` 必须唯一
-- `crn` 必须唯一
 
 **Broker**:
 
@@ -749,7 +746,6 @@ WHERE deleted IS NULL
 - `bankAccountName`: 如果为空，使用 `"{name} Bank Account"`
 - `bankAccountBsb`: 如果为空，使用 `123456`
 - `bankAccountNumber`: 如果为空，使用 `12345678`
-- `crn`: 如果为空，生成 `CRN_{old_id}`
 
 **Broker**:
 
@@ -880,7 +876,6 @@ old_loan_id -> new_loan_id
      "bankAccountName": "Direct Payment Brokers Bank Account",
      "bankAccountBsb": 123456,
      "bankAccountNumber": 12345678,
-     "crn": "CRN_DIRECT_PAYMENT",
      "aggregatorCompanyId": 1
    }
    ```
@@ -903,7 +898,7 @@ psql -h $OLD_DB_HOST -p $OLD_DB_PORT -U $OLD_DB_USER -d $OLD_DB_NAME \
   -t -A -F"," > broker_groups.csv
 
 # 2. 转换为新系统格式并导入
-while IFS=',' read -r old_id name abn account_name bsb account_number crn email phone address; do
+while IFS=',' read -r old_id name abn account_name bsb account_number email phone address; do
   # 清理数据
   abn_clean=$(echo "$abn" | tr -d -c '0-9')
   bsb_clean=$(echo "$bsb" | tr -d -c '0-9')
@@ -916,7 +911,6 @@ while IFS=',' read -r old_id name abn account_name bsb account_number crn email 
     --arg bank_account_name "$account_name" \
     --argjson bsb "$bsb_clean" \
     --argjson account "$account_clean" \
-    --arg crn "$crn" \
     --argjson aggregator_id "$AGGREGATOR_COMPANY_ID" \
     '{
       name: $name,
@@ -924,7 +918,6 @@ while IFS=',' read -r old_id name abn account_name bsb account_number crn email 
       bankAccountName: $bank_account_name,
       bankAccountBsb: $bsb,
       bankAccountNumber: $account,
-      crn: $crn,
       aggregatorCompanyId: $aggregator_id
     }')
 
@@ -998,7 +991,6 @@ done < brokers.csv
 - **创建**: `POST /api/company/broker-group`
 - **查询**: `GET /api/company?type=BROKER_GROUP`
 - **查询（按 ABN）**: `GET /api/company?abn={abn}`
-- **查询（按 CRN）**: `GET /api/company?crn={crn}`
 
 ### Broker
 
@@ -1027,6 +1019,6 @@ done < brokers.csv
 ### 通用规则
 
 9. **必需字段**: 确保所有必需字段都有值，缺失时使用默认值
-10. **唯一性**: 注意 `name`、`abn`、`email`、`crn` 的唯一性约束
+10. **唯一性**: 注意 `name`、`abn`（Broker Group）、`email`、`crn`（Broker）的唯一性约束
 11. **ID 映射**: 维护所有实体的 ID 映射关系，用于关联数据迁移
 12. **数据转换**: 注意百分比转换（Commission: 0-100 → 0-1）、数据清理（ABN/BSB/Account Number）

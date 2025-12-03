@@ -392,10 +392,10 @@ BROKER_GROUPS_COUNT=0
 BROKER_GROUPS_QUERY=""
 if PGPASSWORD="$OLD_DB_PASS" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -c "SELECT COUNT(*) FROM companies WHERE type = 2 AND deleted IS NULL;" > /dev/null 2>&1; then
     BROKER_GROUPS_COUNT=$(PGPASSWORD="$OLD_DB_PASS" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -c "SELECT COUNT(*) FROM companies WHERE type = 2 AND deleted IS NULL;" | tr -d ' ')
-    BROKER_GROUPS_QUERY="SELECT id, name, COALESCE(abn::text, ''), COALESCE(account_name, ''), COALESCE(bsb_number::text, ''), COALESCE(account_number::text, ''), COALESCE(unique_reference, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, '') FROM companies WHERE type = 2 AND deleted IS NULL ORDER BY id"
+    BROKER_GROUPS_QUERY="SELECT id, name, COALESCE(abn::text, ''), COALESCE(account_name, ''), COALESCE(bsb_number::text, ''), COALESCE(account_number::text, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, '') FROM companies WHERE type = 2 AND deleted IS NULL ORDER BY id"
 elif PGPASSWORD="$OLD_DB_PASS" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -c "SELECT COUNT(*) FROM broker_group WHERE deleted IS NULL;" > /dev/null 2>&1; then
     BROKER_GROUPS_COUNT=$(PGPASSWORD="$OLD_DB_PASS" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -c "SELECT COUNT(*) FROM broker_group WHERE deleted IS NULL;" | tr -d ' ')
-    BROKER_GROUPS_QUERY="SELECT id, name, COALESCE(abn::text, ''), COALESCE(account_name, ''), COALESCE(bsb_number::text, ''), COALESCE(account_number::text, ''), COALESCE(unique_reference, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, '') FROM broker_group WHERE deleted IS NULL ORDER BY id"
+    BROKER_GROUPS_QUERY="SELECT id, name, COALESCE(abn::text, ''), COALESCE(account_name, ''), COALESCE(bsb_number::text, ''), COALESCE(account_number::text, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, '') FROM broker_group WHERE deleted IS NULL ORDER BY id"
 fi
 
 if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
@@ -409,7 +409,7 @@ if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
     SKIPPED_GROUPS=0
     FAILED_GROUPS=0
     
-    while IFS=',' read -r old_id name abn account_name bsb account_number crn email phone address || [ -n "$old_id" ]; do
+    while IFS=',' read -r old_id name abn account_name bsb account_number email phone address || [ -n "$old_id" ]; do
         # 使用 set +e 来允许循环中的错误
         set +e
         
@@ -420,7 +420,6 @@ if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
         account_name=$(echo "$account_name" | xargs || echo "")
         bsb=$(echo "$bsb" | xargs || echo "")
         account_number=$(echo "$account_number" | xargs || echo "")
-        crn=$(echo "$crn" | xargs || echo "")
         email=$(echo "$email" | xargs || echo "")
         phone=$(echo "$phone" | xargs || echo "")
         address=$(echo "$address" | xargs || echo "")
@@ -478,11 +477,6 @@ if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
             account_clean="12345678"
         fi
         
-        # Use unique_reference as CRN, or generate one
-        if [ -z "$crn" ]; then
-            crn="CRN_${old_id}"
-        fi
-        
         # Build JSON payload（使用 set +e 防止失败）
         set +e
         json_payload=$(jq -n \
@@ -491,7 +485,6 @@ if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
             --arg bank_account_name "$account_name" \
             --arg bsb_str "$bsb_clean" \
             --arg account_str "$account_clean" \
-            --arg crn "$crn" \
             --arg aggregator_id_str "$AGGREGATOR_COMPANY_ID" \
             --arg email "$email" \
             --arg phone "$phone" \
@@ -502,7 +495,6 @@ if [ "$BROKER_GROUPS_COUNT" -gt 0 ]; then
                 bankAccountName: $bank_account_name,
                 bankAccountBsb: ($bsb_str | tonumber),
                 bankAccountNumber: ($account_str | tonumber),
-                crn: $crn,
                 aggregatorCompanyId: ($aggregator_id_str | tonumber)
             } + (if $email != "" then {email: $email} else {} end) + 
               (if $phone != "" then {phoneNumber: $phone} else {} end) + 
@@ -597,7 +589,6 @@ if [ "$DIRECT_PAYMENT_COUNT" -gt 0 ] 2>/dev/null; then
                 bankAccountName: "Direct Payment Brokers Bank Account",
                 bankAccountBsb: 123456,
                 bankAccountNumber: 12345678,
-                crn: "CRN_DIRECT_PAYMENT",
                 aggregatorCompanyId: ($aggregator_id_str | tonumber)
             }')
         
@@ -828,7 +819,7 @@ fi
 if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
     echo "   发现 $SUB_BROKERS_COUNT 个 DIRECT_PAYMENT brokers (表: sub_broker)"
     
-    # 导出 sub_broker 表数据（包含所有字段，bsb_number 和 account_number 放入 extra_info）
+    # 导出 sub_broker 表数据（包含所有字段，bsb_number 和 account_number 作为直接字段）
     PGPASSWORD="$OLD_DB_PASS" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -A -F"," \
         -c "SELECT id, COALESCE(email, ''), COALESCE(name, ''), broker_group_id, COALESCE(infinity_id::text, ''), COALESCE(bsb_number, ''), COALESCE(account_number, ''), COALESCE(abn, ''), COALESCE(address, ''), COALESCE(phone, ''), COALESCE(deduct::text, 'false'), COALESCE(account_name, '') FROM sub_broker WHERE deleted IS NULL ORDER BY id" > "${TEMP_DIR}/sub_brokers.csv" 2>/dev/null
     
@@ -931,18 +922,19 @@ if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
         # 生成 CRN（不使用 unique_reference）
         crn="CRN_SUB_BROKER_${old_id}"
         
-        # 构建 extra_info JSON（包含 bsb_number, account_number, abn, address, phone, deduct, account_name）
+        # 清理 BSB 和 account number（移除非数字字符）
+        bsb_clean=$(echo "$bsb_number" | tr -d -c '0-9')
+        account_clean=$(echo "$account_number" | tr -d -c '0-9')
+        
+        # 构建 extra_info JSON（包含 abn, address, phone, deduct, account_name）
+        # 注意：bsb_number 和 account_number 现在直接作为字段，不再放入 extra_info
         extra_info_json=$(jq -n \
-            --arg bsb "$bsb_number" \
-            --arg account "$account_number" \
             --arg abn "$abn" \
             --arg address "$address" \
             --arg phone "$phone" \
             --arg deduct "$deduct" \
             --arg account_name "$account_name" \
             '{} + 
-            (if $bsb != "" then {bsbNumber: $bsb} else {} end) +
-            (if $account != "" then {accountNumber: $account} else {} end) +
             (if $abn != "" then {abn: $abn} else {} end) +
             (if $address != "" then {address: $address} else {} end) +
             (if $phone != "" then {phone: $phone} else {} end) +
@@ -956,6 +948,8 @@ if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
             --arg crn "$crn" \
             --argjson broker_group_id "$new_broker_group_id" \
             --arg infinity_id_str "$infinity_id" \
+            --arg bsb_str "$bsb_clean" \
+            --arg account_str "$account_clean" \
             --argjson extra_info "$extra_info_json" \
             '{
                 email: $email,
@@ -963,6 +957,8 @@ if [ "$SUB_BROKERS_COUNT" -gt 0 ]; then
                 crn: $crn,
                 brokerGroupId: $broker_group_id
             } + (if $infinity_id_str != "" and $infinity_id_str != "0" and $infinity_id_str != "NULL" then {infinityId: ($infinity_id_str | tonumber)} else {} end) +
+              (if $bsb_str != "" then {bankAccountBsb: ($bsb_str | tonumber)} else {} end) +
+              (if $account_str != "" then {bankAccountNumber: ($account_str | tonumber)} else {} end) +
               (if ($extra_info | length) > 0 then {extraInfo: $extra_info} else {} end)')
         
         echo "   导入 Sub Broker: $email (old ID: $old_id, type: DIRECT_PAYMENT)..."
