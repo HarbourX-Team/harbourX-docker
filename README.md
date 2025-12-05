@@ -1356,34 +1356,7 @@ AI-Module/
    sudo yum install git -y  # Amazon Linux
    ```
 
-2. **安装数据迁移依赖（可选，如果需要从旧系统迁移数据）**:
-
-   数据迁移脚本需要 `psql` 客户端工具来连接旧系统的数据库。部署脚本会自动检测并安装，但也可以手动安装：
-
-   **Amazon Linux 2023**:
-   ```bash
-   sudo dnf install -y postgresql15
-   ```
-
-   **Amazon Linux 2**:
-   ```bash
-   sudo amazon-linux-extras install -y postgresql13
-   ```
-
-   **Debian/Ubuntu**:
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y postgresql-client
-   ```
-
-   **CentOS/RHEL**:
-   ```bash
-   sudo yum install -y postgresql
-   ```
-
-   > 💡 **提示**: 部署脚本会在运行数据迁移时自动检测系统类型并尝试安装 `psql`，通常无需手动安装。
-
-3. **初始化 Git 仓库**:
+2. **初始化 Git 仓库**:
 
    运行本地脚本自动设置：
 
@@ -1527,7 +1500,6 @@ AI-Module/
 6. **路径过滤**：CD 只在相关文件变更时触发，避免不必要的部署
 7. **服务启动时间**：Backend 需要 30 秒启动时间（Spring Boot）
 8. **数据库迁移**：Backend 部署时会自动运行 Liquibase 迁移
-9. **数据迁移依赖**：如果需要从旧系统迁移数据，部署脚本会自动安装 `psql` 客户端工具。对于 Amazon Linux 2023，使用 `dnf install -y postgresql15`；对于 Amazon Linux 2，使用 `amazon-linux-extras install -y postgresql13`
 
 ---
 

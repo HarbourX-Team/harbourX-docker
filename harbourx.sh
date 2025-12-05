@@ -705,14 +705,16 @@ deploy_deploy() {
         # 当前目录应该就是包含 dockerfiles 的目录
         if [ -d "dockerfiles" ]; then
             # 当前目录就是 docker 配置目录，使用当前目录名
-            export DOCKER_DIR="\$(basename \$(pwd))"
+            CURRENT_PWD=$(pwd)
+            DOCKER_DIR_NAME=$(basename "$CURRENT_PWD")
+            export DOCKER_DIR="$DOCKER_DIR_NAME"
         elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
             export DOCKER_DIR="harbourX"
         elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
             export DOCKER_DIR="harbourx"
         else
             # 查找包含 dockerfiles 的目录
-            DOCKER_DIR_FOUND=\$(find . -maxdepth 2 -type d -name "dockerfiles" -exec dirname {} \; | head -1 | xargs basename 2>/dev/null)
+            DOCKER_DIR_FOUND=\$(find . -maxdepth 2 -type d -name "dockerfiles" -exec dirname {} \\; | head -1 | xargs basename 2>/dev/null)
             if [ -n "\$DOCKER_DIR_FOUND" ] && [ "\$DOCKER_DIR_FOUND" != "." ]; then
                 export DOCKER_DIR="\$DOCKER_DIR_FOUND"
             else
@@ -724,8 +726,8 @@ deploy_deploy() {
         echo "检查 dockerfiles 目录: \$(ls -la dockerfiles 2>/dev/null | head -3 || echo 'dockerfiles 不存在')"
         
         # 处理 AI-Module .env 文件
-        PROJECT_ROOT="\${PROJECT_ROOT:-..}"
-        AI_MODULE_DIR="\${AI_MODULE_DIR:-AI-Module}"
+        PROJECT_ROOT="${PROJECT_ROOT:-..}"
+        AI_MODULE_DIR="${AI_MODULE_DIR:-AI-Module}"
         ENV_FILE="\$PROJECT_ROOT/\$AI_MODULE_DIR/.env"
         
         # 确保 AI-Module 目录存在
@@ -768,14 +770,14 @@ deploy_deploy() {
         echo "  这将删除所有数据库数据！"
         # 删除 postgres 数据卷
         docker volume rm harbourx_postgres_data 2>/dev/null || true
-        docker volume ls | grep postgres_data | awk '{print \$2}' | xargs -r docker volume rm 2>/dev/null || true
+        docker volume ls | grep postgres_data | awk '{print $2}' | xargs -r docker volume rm 2>/dev/null || true
         echo "  ✅ 数据库卷已删除"
         
         # 设置正确的环境变量
         export PROJECT_ROOT=".."
         export DOCKER_DIR="\$DOCKER_DIR"
         # 设置 CORS 允许的源（包含 EC2 IP）
-        FRONTEND_ALLOWED_ORIGINS_VAL="\${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
+        FRONTEND_ALLOWED_ORIGINS_VAL="${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
         export FRONTEND_ALLOWED_ORIGINS="\$FRONTEND_ALLOWED_ORIGINS_VAL"
         # 设置 Spring Boot 应用 JSON 配置（直接设置 frontend.allowedOrigins）
         # 使用单引号避免 shell 转义问题，然后通过 printf 生成正确的 JSON
@@ -804,9 +806,9 @@ deploy_deploy() {
         fi
         
         # 更新后端代码（从 GitHub 拉取最新代码）
-        BACKEND_DIR="\${BACKEND_DIR:-HarbourX-Backend}"
-        BACKEND_PATH="\$PROJECT_ROOT/\$BACKEND_DIR"
-        echo "更新后端代码（从 GitHub 拉取）: \$BACKEND_PATH"
+        BACKEND_DIR="${BACKEND_DIR:-HarbourX-Backend}"
+        BACKEND_PATH="$PROJECT_ROOT/$BACKEND_DIR"
+        echo "更新后端代码（从 GitHub 拉取）: $BACKEND_PATH"
         
         if [ -d "\$BACKEND_PATH/.git" ]; then
             echo "  后端仓库已存在，拉取最新代码..."
@@ -1011,9 +1013,9 @@ deploy_deploy() {
         fi
         
         # 更新前端代码（从 GitHub 拉取最新代码）
-        FRONTEND_DIR="\${FRONTEND_DIR:-HarbourX-Frontend}"
-        FRONTEND_PATH="\$PROJECT_ROOT/\$FRONTEND_DIR"
-        echo "更新前端代码（从 GitHub 拉取）: \$FRONTEND_PATH"
+        FRONTEND_DIR="${FRONTEND_DIR:-HarbourX-Frontend}"
+        FRONTEND_PATH="$PROJECT_ROOT/$FRONTEND_DIR"
+        echo "更新前端代码（从 GitHub 拉取）: $FRONTEND_PATH"
         
         if [ -d "\$FRONTEND_PATH/.git" ]; then
             echo "  前端仓库已存在，拉取最新代码..."
@@ -1448,7 +1450,7 @@ deploy_deploy_backend() {
         cd ~
         sudo mkdir -p /opt/harbourx
         sudo tar -xzf "$TAR_FILE_BASENAME" -C /opt/harbourx 2>/dev/null || true
-        sudo chown -R ${USER}:${USER} /opt/harbourx
+        sudo chown -R $USER:$USER /opt/harbourx
         rm -f "$TAR_FILE_BASENAME"
         
         cd /opt/harbourx
@@ -1457,7 +1459,9 @@ deploy_deploy_backend() {
         # 当前目录应该就是包含 dockerfiles 的目录
         if [ -d "dockerfiles" ]; then
             # 当前目录就是 docker 配置目录，使用当前目录名
-            export DOCKER_DIR="$(basename $(pwd))"
+            CURRENT_PWD=$(pwd)
+            DOCKER_DIR_NAME=$(basename "$CURRENT_PWD")
+            export DOCKER_DIR="$DOCKER_DIR_NAME"
         elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
             export DOCKER_DIR="harbourX"
         elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
@@ -1501,6 +1505,93 @@ deploy_deploy_backend() {
         FRONTEND_ALLOWED_ORIGINS_VAL="${FRONTEND_ALLOWED_ORIGINS:-http://13.54.207.94,http://localhost:3001,http://localhost:80,http://frontend:80}"
         export FRONTEND_ALLOWED_ORIGINS="$FRONTEND_ALLOWED_ORIGINS_VAL"
         export SPRING_APPLICATION_JSON=$(printf '{"frontend":{"allowedOrigins":"%s"}}' "$FRONTEND_ALLOWED_ORIGINS_VAL")
+        
+        # 加载 .env 文件（如果存在）以获取已有的配置
+        # 首先清理 .env 文件中所有包含占位符或循环引用的 AWS_S3 配置
+        if [ -f .env ]; then
+            echo "清理 .env 文件中的无效 AWS_S3 配置..."
+            # 删除所有包含 ${} 占位符的 AWS_S3 配置行
+            grep -v "^AWS_S3.*\${" .env > .env.tmp 2>/dev/null || cat .env > .env.tmp
+            mv .env.tmp .env
+            # 删除所有包含循环引用的 AWS_S3 配置行
+            grep -v "^AWS_S3.*AWS_S3" .env > .env.tmp 2>/dev/null || cat .env > .env.tmp
+            mv .env.tmp .env
+            
+            echo "加载 .env 文件中的配置..."
+            # 读取 AWS_S3 配置（排除注释和空行，排除包含 ${} 的行）
+            AWS_S3_ACCESS_FROM_ENV=$(grep "^AWS_S3_ACCESS=" .env | grep -v "^#" | grep -v "\${" | cut -d'=' -f2- | head -1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//')
+            AWS_S3_SECRET_FROM_ENV=$(grep "^AWS_S3_SECRET=" .env | grep -v "^#" | grep -v "\${" | cut -d'=' -f2- | head -1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//')
+            
+            # 如果 .env 中有有效值（不是占位符、不是空、不包含 ${}），使用它
+            if [ -n "$AWS_S3_ACCESS_FROM_ENV" ] && [ "$AWS_S3_ACCESS_FROM_ENV" != "PLACEHOLDER_ACCESS_KEY" ] && [ "$AWS_S3_ACCESS_FROM_ENV" != "${AWS_S3_ACCESS}" ] && ! echo "$AWS_S3_ACCESS_FROM_ENV" | grep -q '\${'; then
+                export AWS_S3_ACCESS="$AWS_S3_ACCESS_FROM_ENV"
+                export AWS_S3_SECRET="$AWS_S3_SECRET_FROM_ENV"
+                echo "✅ AWS S3 凭证已从 .env 文件加载"
+            else
+                echo "⚠️  .env 文件中的 AWS_S3 配置无效或缺失，需要重新配置"
+                # 删除无效的 AWS_S3 配置
+                grep -v "^AWS_S3" .env > .env.tmp && mv .env.tmp .env
+            fi
+            
+            # 加载其他环境变量（除了 AWS_S3，避免循环引用）
+            while IFS='=' read -r key value; do
+                # 跳过注释、空行和 AWS_S3 相关配置
+                if [[ "$key" =~ ^[[:space:]]*# ]] || [ -z "$key" ] || [[ "$key" =~ ^AWS_S3 ]]; then
+                    continue
+                fi
+                # 移除可能的引号
+                value=$(echo "$value" | sed "s/^['\"]//;s/['\"]$//")
+                export "$key=$value"
+            done < .env
+        else
+            echo "⚠️  .env 文件不存在，将创建新文件"
+            touch .env
+        fi
+        
+        # 配置 AWS S3 凭证（如果未设置或使用占位符）
+        if [ -z "${AWS_S3_ACCESS:-}" ] || [ "${AWS_S3_ACCESS}" = "PLACEHOLDER_ACCESS_KEY" ] || [ "${AWS_S3_ACCESS}" = "${AWS_S3_ACCESS}" ]; then
+            echo ""
+            echo "⚠️  AWS S3 凭证未配置或使用占位符值"
+            echo "   需要配置 S3 凭证以支持 RCTI 文件上传功能"
+            echo ""
+            read -p "请输入 AWS S3 Access Key ID (或按 Enter 跳过): " AWS_S3_ACCESS_INPUT
+            if [ -n "$AWS_S3_ACCESS_INPUT" ]; then
+                export AWS_S3_ACCESS="$AWS_S3_ACCESS_INPUT"
+                read -sp "请输入 AWS S3 Secret Access Key: " AWS_S3_SECRET_INPUT
+                echo ""
+                if [ -n "$AWS_S3_SECRET_INPUT" ]; then
+                    export AWS_S3_SECRET="$AWS_S3_SECRET_INPUT"
+                    echo "✅ AWS S3 凭证已设置"
+                    
+                    # 保存到 .env 文件（如果存在）
+                    if [ -f .env ]; then
+                        # 删除旧的 AWS_S3 配置
+                        grep -v "^AWS_S3" .env > .env.tmp && mv .env.tmp .env
+                        # 验证值不包含占位符或变量引用
+                        if echo "$AWS_S3_ACCESS" | grep -q '\${' || echo "$AWS_S3_SECRET" | grep -q '\${'; then
+                            echo "❌ 错误: S3 凭证值包含占位符，无法保存"
+                            export AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                            export AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+                        else
+                            # 添加新的配置（确保值是纯值，不包含变量引用）
+                            echo "AWS_S3_ACCESS=$AWS_S3_ACCESS" >> .env
+                            echo "AWS_S3_SECRET=$AWS_S3_SECRET" >> .env
+                            echo "✅ AWS S3 凭证已保存到 .env 文件"
+                        fi
+                    fi
+                else
+                    echo "⚠️  未输入 Secret Key，将使用占位符值"
+                    export AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                    export AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+                fi
+            else
+                echo "⚠️  跳过 S3 配置，将使用占位符值（RCTI 文件上传功能将不可用）"
+                export AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                export AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+            fi
+        else
+            echo "✅ AWS S3 凭证已从环境变量加载"
+        fi
         
         # 更新后端代码
         BACKEND_DIR="${BACKEND_DIR:-HarbourX-Backend}"
@@ -1568,6 +1659,20 @@ deploy_deploy_backend() {
         # 确保在部署目录
         cd /opt/harbourx
         
+        # 在部署开始前，清理 .env 文件中的无效配置
+        if [ -f .env ]; then
+            echo "清理 .env 文件中的无效配置（部署前检查）..."
+            # 备份 .env 文件
+            cp .env .env.backup.$(date +%s) 2>/dev/null || true
+            # 删除所有包含 ${} 占位符的 AWS_S3 配置行
+            grep -v "^AWS_S3.*\${" .env > .env.tmp 2>/dev/null || cat .env > .env.tmp
+            mv .env.tmp .env
+            # 删除所有包含循环引用的 AWS_S3 配置行
+            grep -v "^AWS_S3.*AWS_S3" .env > .env.tmp 2>/dev/null || cat .env > .env.tmp
+            mv .env.tmp .env
+            echo "✅ .env 文件已清理"
+        fi
+        
         # 确保 Docker 可以访问构建上下文
         # 修复可能的权限问题
         sudo chown -R $(whoami):$(whoami) . 2>/dev/null || true
@@ -1609,6 +1714,28 @@ deploy_deploy_backend() {
         $DOCKER_COMPOSE_CMD -f docker-compose.yml build --no-cache backend
         
         echo "启动后端服务..."
+        # 确保环境变量被正确传递到 Docker Compose
+        # Docker Compose 会自动读取 .env 文件，但为了确保正确，显式导出
+        # 在启动前，再次验证和清理 .env 文件
+        if [ -f .env ]; then
+            echo "验证 .env 文件中的 AWS_S3 配置..."
+            # 删除所有包含 ${} 占位符的 AWS_S3 配置行
+            grep -v "^AWS_S3.*\${" .env > .env.tmp 2>/dev/null || cat .env > .env.tmp
+            mv .env.tmp .env
+            # 从 .env 文件读取 AWS_S3 配置并导出（排除包含 ${} 的行）
+            AWS_S3_ACCESS_VAL=$(grep "^AWS_S3_ACCESS=" .env | grep -v "^#" | grep -v "\${" | cut -d'=' -f2- | head -1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//')
+            AWS_S3_SECRET_VAL=$(grep "^AWS_S3_SECRET=" .env | grep -v "^#" | grep -v "\${" | cut -d'=' -f2- | head -1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//')
+            # 验证值不包含占位符
+            if [ -n "$AWS_S3_ACCESS_VAL" ] && [ "$AWS_S3_ACCESS_VAL" != "PLACEHOLDER_ACCESS_KEY" ] && ! echo "$AWS_S3_ACCESS_VAL" | grep -q '\${'; then
+                export AWS_S3_ACCESS="$AWS_S3_ACCESS_VAL"
+                export AWS_S3_SECRET="$AWS_S3_SECRET_VAL"
+                echo "✅ AWS S3 凭证已验证并导出"
+            else
+                echo "⚠️  .env 文件中的 AWS_S3 配置无效，使用占位符值"
+                export AWS_S3_ACCESS="PLACEHOLDER_ACCESS_KEY"
+                export AWS_S3_SECRET="PLACEHOLDER_SECRET_KEY"
+            fi
+        fi
         $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d backend
         
         echo "等待服务启动..."
@@ -1756,7 +1883,7 @@ deploy_deploy_frontend() {
         cd ~
         sudo mkdir -p /opt/harbourx
         sudo tar -xzf "$TAR_FILE_BASENAME" -C /opt/harbourx 2>/dev/null || true
-        sudo chown -R ${USER}:${USER} /opt/harbourx
+        sudo chown -R $USER:$USER /opt/harbourx
         rm -f "$TAR_FILE_BASENAME"
         
         cd /opt/harbourx
@@ -1765,7 +1892,9 @@ deploy_deploy_frontend() {
         # 当前目录应该就是包含 dockerfiles 的目录
         if [ -d "dockerfiles" ]; then
             # 当前目录就是 docker 配置目录，使用当前目录名
-            export DOCKER_DIR="$(basename $(pwd))"
+            CURRENT_PWD=$(pwd)
+            DOCKER_DIR_NAME=$(basename "$CURRENT_PWD")
+            export DOCKER_DIR="$DOCKER_DIR_NAME"
         elif [ -d "harbourX" ] && [ -d "harbourX/dockerfiles" ]; then
             export DOCKER_DIR="harbourX"
         elif [ -d "harbourx" ] && [ -d "harbourx/dockerfiles" ]; then
@@ -1879,7 +2008,7 @@ deploy_deploy_frontend() {
         # 清理旧的 frontend 镜像
         echo "清理旧的 frontend 镜像..."
         docker rmi harbourx-frontend 2>/dev/null || true
-        docker images | grep frontend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+        docker images | grep frontend | awk '{print \$3}' | xargs -r docker rmi -f 2>/dev/null || true
         
         # 构建并启动前端服务
         echo "构建前端服务镜像..."

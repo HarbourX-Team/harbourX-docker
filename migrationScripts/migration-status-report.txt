@@ -1,0 +1,275 @@
+# 迁移状态报告
+# 生成时间: 2025-12-05
+# 数据来源: 生产环境 (Production)
+# 目标环境: http://13.54.207.94/api
+
+## 当前数据状态
+
+### 云端（HarbourX）数据
+- **Broker Groups**: 147个
+- **Brokers (总计)**: 220个
+  - DIRECT_PAYMENT: 29个
+  - NON_DIRECT_PAYMENT: 191个
+
+### 老数据库（生产环境）数据
+- **Broker Groups**: 144个（未删除）
+- **NON_DIRECT_PAYMENT Brokers**: 178个
+- **DIRECT_PAYMENT Brokers**: 15个
+
+---
+
+## 数据对比
+
+### Broker Groups
+- **云端**: 147个
+- **老系统**: 144个（未删除）
+- **差异**: +3个（云端比老系统多3个）
+
+**分析**:
+- 云端数据可能包含之前迁移的数据
+- 或者包含一些额外的测试数据
+- 云端数据已完整，甚至比老系统多
+
+### NON_DIRECT_PAYMENT Brokers
+- **云端**: 191个
+- **老系统**: 178个
+- **差异**: +13个（云端比老系统多13个）
+
+**分析**:
+- 云端数据比老系统多，可能包含之前迁移的数据
+
+### DIRECT_PAYMENT Brokers
+- **云端**: 29个
+- **老系统**: 15个
+- **差异**: +14个（云端比老系统多14个）
+
+**分析**:
+- 云端数据比老系统多，可能包含之前迁移的数据
+
+---
+
+## 迁移完成情况
+
+### ✅ 已完成的迁移
+- Broker Groups: 147个已存在于云端
+- Brokers: 220个已存在于云端
+
+### ⚠️ 未完成的迁移
+
+#### 1. Broker Groups 映射缺失
+以下 Broker Groups 在老系统中存在，但无法通过 ABN 或 name 找到对应的新系统 ID：
+- **ID: 1, Name: NBS HOME LOANS PTY. LIMITED**
+- **ID: 10, Name: BW AUSTRALIA PTY LTD (Old)**
+- **ID: 215, Name: AUSTRALIAN HOUSING FUND PTY LTD(Mentee)**
+- **ID: 239, Name: EFS ADVISORS PTY LTD**
+
+**影响**: 依赖这些 Broker Groups 的 Brokers 无法迁移
+
+#### 2. Brokers 迁移状态
+根据最新迁移日志：
+- **NON_DIRECT_PAYMENT Brokers**: 0成功，178跳过，0失败
+- **DIRECT_PAYMENT Brokers**: 0成功，15跳过，0失败
+
+**跳过原因**: 无法找到 `broker_group_id` 的映射关系
+
+---
+
+## 剩余工作
+
+### 需要处理的问题
+
+1. **补充缺失的 Broker Group 映射**
+   - 手动匹配无法找到的 4 个 Broker Groups
+   - 更新 `id_mapping.txt` 文件
+
+2. **重新迁移 Brokers**
+   - 在补充映射后，重新运行 Brokers 迁移
+   - 确保所有 Brokers 都能找到对应的 Broker Group
+
+3. **数据验证**
+   - 验证迁移后的数据完整性
+   - 检查数据一致性
+
+---
+
+## 建议
+
+1. **如果数据已完整**: 
+   - 云端已有 147 个 Broker Groups 和 220 个 Brokers
+   - 如果这些数据是完整的，可能不需要重新迁移
+
+2. **如果需要完整迁移**:
+   - 先补充缺失的 Broker Group 映射
+   - 然后重新运行 Brokers 迁移脚本
+
+3. **数据清理**:
+   - 如果确定要重新迁移，先清理云端数据
+   - 然后从零开始完整迁移
+
+---
+
+## 未完成的迁移详情
+
+### 1. Broker Groups 映射缺失（4个）
+以下 Broker Groups 在老系统中存在，但无法通过 ABN 或 name 找到对应的新系统 ID：
+- **ID: 1, Name: NBS HOME LOANS PTY. LIMITED**
+- **ID: 10, Name: BW AUSTRALIA PTY LTD (Old)**
+- **ID: 215, Name: AUSTRALIAN HOUSING FUND PTY LTD(Mentee)**
+- **ID: 239, Name: EFS ADVISORS PTY LTD**
+
+**影响**: 依赖这些 Broker Groups 的 Brokers 无法迁移
+
+### 2. NON_DIRECT_PAYMENT Brokers（114个失败）
+**失败原因**: `Failed to execute InsertRoot` - 数据库约束问题
+- Email 唯一约束冲突
+- CRN 唯一约束冲突
+- 或其他数据库约束
+
+**状态**: 这些 Brokers 可能已存在于云端（因为云端有191个，比老系统多13个）
+
+**失败的 Broker 列表**（前70个）:
+1. ID: 16, Name: Andrew Hu
+2. ID: 72, Name: Bin Zhou
+3. ID: 22, Name: Cordelia Jia
+4. ID: 42, Name: Deok Myeong Kim
+5. ID: 183, Name: Qiuzhen Jiang
+6. ID: 47, Name: George Li
+7. ID: 184, Name: Samuel Dakroub
+8. ID: 185, Name: Meltem Akin
+9. ID: 6, Name: Ian Haldane
+10. ID: 71, Name: James Tang
+11. ID: 49, Name: Jason Zong
+12. ID: 50, Name: Jiaoyang Ma
+13. ID: 9, Name: Jiayi (Anne) Sun
+14. ID: 17, Name: John Perivolaris
+15. ID: 4, Name: Jun (Andy) Liu
+16. ID: 8, Name: Pawan Gupta
+17. ID: 12, Name: Rui Ge
+18. ID: 34, Name: Shane Shanhai Ding
+19. ID: 5, Name: Shu Sang
+20. ID: 74, Name: Taozhi Li
+21. ID: 25, Name: Thi Ngoc Anh (Allie) Nguyen
+22. ID: 11, Name: Wei Zhang
+23. ID: 48, Name: Yang Dai
+24. ID: 196, Name: Shanshan Wang
+25. ID: 27, Name: Yating Li
+26. ID: 41, Name: Yu Ho Peterson Lai
+27. ID: 28, Name: Yujing Chen
+28. ID: 20, Name: Zheng Wang
+29. ID: 45, Name: Lucia Yuxi Xiao Ambler
+30. ID: 205, Name: Shelly Gupta
+31. ID: 215, Name: Ranjith Krishnan Gopalankutty
+32. ID: 197, Name: Kai Tian (Inactive)
+33. ID: 221, Name: Xiaoxi Zhang
+34. ID: 222, Name: Yanxia Wang
+35. ID: 118, Name: Xiaodong (Joan) Liu
+36. ID: 30, Name: Phuong Diem Nguyen
+37. ID: 231, Name: Phuong Anh Ly
+38. ID: 186, Name: Wenkui (Kevin) Yao
+39. ID: 188, Name: Jing Jing Zhou
+40. ID: 189, Name: Han Dou
+41. ID: 194, Name: Harishwar Reddy Sama
+42. ID: 199, Name: Johnny Harfouch
+43. ID: 200, Name: Arvind Singh
+44. ID: 211, Name: Wu Li
+45. ID: 173, Name: Bangjin Huang
+46. ID: 157, Name: Fangzhu (Vicky) Jin
+47. ID: 250, Name: Shao Wang
+48. ID: 251, Name: Rifat Hasan
+49. ID: 259, Name: Sandy Chen
+50. ID: 260, Name: Henry Zhang
+51. ID: 153, Name: Cuncao Wang
+52. ID: 170, Name: Tianding Liu
+53. ID: 171, Name: Haitao Li (Inactive)
+54. ID: 229, Name: Tingting Ye
+55. ID: 249, Name: Saurabh Pradip Phanse
+56. ID: 158, Name: Lakshapathi Vidanalage Keith Thishan De Mel
+57. ID: 180, Name: Jagatjitsingh Daljit Golan
+58. ID: 258, Name: Thuy Hoang Anh (Helen) Nguyen (inactive)
+59. ID: 262, Name: Zhanyan Liu
+60. ID: 263, Name: Ping Liu
+61. ID: 264, Name: Mansi Harshal Shah
+62. ID: 291, Name: Terry Liu
+63. ID: 246, Name: Kun (Ace) Shang
+64. ID: 61, Name: Wenliang (Ethan) Xiao
+65. ID: 241, Name: Chi Chung (Andy) Au
+66. ID: 240, Name: Chueh-Fen (Jennifer) Tseng
+67. ID: 234, Name: Ruwei (David) Jiang
+68. ID: 177, Name: Yi (Ivy) Zhuang
+69. ID: 276, Name: Stanly Sror Yousif
+70. ... 还有 44 个失败的记录
+
+### 3. DIRECT_PAYMENT Brokers（10个失败）
+**失败原因**: `Failed to execute InsertRoot` - 数据库约束问题
+- Email 唯一约束冲突
+- CRN 唯一约束冲突
+- 或其他数据库约束
+
+**状态**: 这些 Brokers 可能已存在于云端（因为云端有29个，比老系统多14个）
+
+**失败的 Broker 列表**:
+1. **ID: 3, Name: Yuanyuan (Vivian) Zhou**
+   - Email: vivianhomeloan@gmail.com
+   - CRN: CRN_SUB_BROKER_3
+
+2. **ID: 68, Name: Wenqin Fan**
+   - Email: lisa.f@ezyfinancegroup.com.au
+   - CRN: 521913
+
+3. **ID: 2, Name: Dandan Zhao**
+   - Email: dandan66au@gmail.com
+   - CRN: 519072
+
+4. **ID: 37, Name: Heng Yang**
+   - Email: broker.henry.yang@gmail.com
+   - CRN: 563486
+
+5. **ID: 35, Name: Thu Huong (Jasmine) Nguyen**
+   - Email: jasmine.nguyen19391@gmail.com
+   - CRN: CRN_SUB_BROKER_35
+
+6. **ID: 66, Name: Liran Cheng**
+   - Email: info@vicprime.com.au
+   - CRN: 567170
+
+7. **ID: 52, Name: Rui (Ray) Liu**
+   - Email: finance@norlandproperty.com.au
+   - CRN: CRN_SUB_BROKER_52
+
+8. **ID: 53, Name: Kim Ing Chua**
+   - Email: Kimmy@penta-prime.com.au
+   - CRN: 493781
+
+9. **ID: 67, Name: Jing Kang**
+   - Email: kayla.kang@penta-prime.com.au
+   - CRN: 544808
+
+10. **ID: 19, Name: Xia Ping (Peggie) Wu**
+    - Email: peggywu2020@outlook.com
+    - CRN: CRN_SUB_BROKER_19
+
+### 4. 跳过的 Brokers（6个）
+**跳过原因**: 无法找到 `broker_group_id` 映射
+- Broker ID: 1, Broker Group ID: 1 (NBS HOME LOANS PTY. LIMITED 未映射)
+- Broker ID: 10, Broker Group ID: 10 (BW AUSTRALIA PTY LTD (Old) 未映射)
+- Broker ID: 56, Broker Group ID: 10 (BW AUSTRALIA PTY LTD (Old) 未映射)
+- Broker ID: 82, Broker Group ID: 1 (NBS HOME LOANS PTY. LIMITED 未映射)
+- Broker ID: 297, Broker Group ID: 215 (AUSTRALIAN HOUSING FUND PTY LTD(Mentee) 未映射)
+- Broker ID: 309, Broker Group ID: 239 (EFS ADVISORS PTY LTD 未映射)
+
+---
+
+## 下一步行动
+
+请确认：
+1. 云端现有数据是否完整且正确？
+2. 是否需要重新迁移所有数据？
+3. 还是只需要补充缺失的映射关系？
+
+## 建议
+
+由于云端数据已存在且数量比老系统多，建议：
+1. **验证数据完整性**: 检查云端数据是否包含所有需要的数据
+2. **补充映射关系**: 手动创建缺失的 4 个 Broker Group 映射
+3. **重新验证**: 确认所有 Brokers 都能正确关联到 Broker Groups
+
