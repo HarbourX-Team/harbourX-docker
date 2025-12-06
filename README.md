@@ -1031,18 +1031,31 @@ aws:
 
 **5. 配置到环境变量**
 
-将 S3 配置添加到 AI-Module 的 `.env` 文件：
+**重要**：S3 配置需要添加到 **HarbourX-Backend** 的 `.env` 文件，而不是 AI-Module。
 
 ```bash
-cd /opt/AI-Module
+# 在 EC2 上配置
+cd /opt/harbourx
+
+# 添加 S3 配置到 .env 文件
 cat >> .env << 'EOF'
 # AWS S3 Configuration
-AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
-AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
-AWS_REGION=ap-southeast-2
-AWS_S3_BUCKET_NAME=harbourx-rcti
+AWS_S3_ACCESS=YOUR_AWS_ACCESS_KEY_ID
+AWS_S3_SECRET=YOUR_AWS_SECRET_ACCESS_KEY
 EOF
+
+# 设置文件权限（安全重要）
+chmod 600 .env
+
+# 重启后端服务使配置生效
+docker-compose restart backend
 ```
+
+**详细配置指南**：请参考 [CLOUD_S3_CONFIG.md](./CLOUD_S3_CONFIG.md) 获取完整的云端 S3 配置说明，包括：
+- 多种配置方法（.env 文件、环境变量、部署脚本）
+- 安全最佳实践
+- 故障排查指南
+- IAM 角色配置（推荐）
 
 **安全提示**：
 
@@ -1050,6 +1063,7 @@ EOF
 - 使用环境变量或 AWS Secrets Manager 存储敏感信息
 - 定期轮换访问密钥
 - 使用最小权限原则（仅授予必要的 S3 权限）
+- 如果 EC2 在 AWS 中运行，优先使用 IAM 角色而不是访问密钥
 
 #### 步骤 4：启动服务
 

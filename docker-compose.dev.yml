@@ -52,6 +52,9 @@ services:
       - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
       - JWT_SECRET=${JWT_SECRET:-aVeryLongAndSecureSecretKeyThatIsAtLeast256BitsLongForHS256}
       - FRONTEND_ALLOWED_ORIGINS=${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3001,http://localhost:80,http://frontend:80}
+      # AWS S3 Configuration (required for RCTI file upload)
+      - AWS_S3_ACCESS=${AWS_S3_ACCESS:-AKIA4VCOIBWW4KZBFX4B}
+      - AWS_S3_SECRET=${AWS_S3_SECRET:-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}
     ports:
       - "8080:8080"
     depends_on:
