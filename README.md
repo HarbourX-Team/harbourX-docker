@@ -123,6 +123,7 @@ A:
 - [🔧 常用命令](#-常用命令)
 - [📝 完整命令参考](#-完整命令参考)
 - [🗄️ 数据库管理](#️-数据库管理)
+- [📊 数据迁移](#-数据迁移)
 - [🔍 健康检查](#-健康检查)
 - [🐛 故障排查](#-故障排查)
 - [🔐 安全建议](#-安全建议)
@@ -636,6 +637,47 @@ docker exec -i harbourx-postgres psql -U harbourx harbourx < backup.sql
 
 - `postgres_data`: PostgreSQL 数据库数据
 - `ai_module_data`: AI-Module 上传的文件和生成的数据
+
+---
+
+## 📊 数据迁移
+
+HarbourX 系统提供了完整的数据迁移工具，用于从老系统（HaiMoney）迁移数据到新系统。
+
+### 快速开始
+
+使用统一入口脚本：
+
+```bash
+cd migrationScripts
+
+# 本地环境迁移
+./migrate.sh local
+
+# 生产环境迁移
+export LOGIN_PASSWORD="your-password"
+./migrate.sh prod
+```
+
+### 迁移工具说明
+
+迁移脚本位于 `migrationScripts/` 目录，包含：
+
+- **统一入口**: `migrate.sh` - 支持本地和生产环境迁移
+- **修复脚本**: `fix-local-created-at.sh`, `fix-prod-created-at-via-ssh.sh` - 修复时间戳问题
+- **诊断脚本**: `diagnose-prod-missing-aggregator.sh` - 诊断错误
+- **验证脚本**: `verify-created-at.sh`, `verify-relationships.sh` - 验证数据
+
+### 重要提示
+
+**created_at 时间戳修复**：
+
+- 迁移完成后会自动修复 `created_at` 时间戳
+- 如果上传 RCTI 文件后出现 `MISSING_BROKER_GROUP` 或 `MISSING_AGGREGATOR` 错误，需要运行修复脚本：
+  - 本地环境：`./fix-local-created-at.sh`
+  - 生产环境：`./fix-prod-created-at-via-ssh.sh`
+
+详细说明请参考：**[migrationScripts/README.md](migrationScripts/README.md)**
 
 ---
 

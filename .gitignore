@@ -19,3 +19,10 @@ Thumbs.db
 *.bak
 *.cache
 
+# Migration reports and generated files
+migrationScripts/migration-report/
+migrationScripts/*.log
+migrationScripts/id_mapping*.txt
+migrationScripts/*.txt
+migrationScripts/**/*-report-*.txt
+
