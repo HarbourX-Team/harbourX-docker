@@ -382,7 +382,8 @@ migrate_brokers(){
   # NON_DIRECT - 包含已知的特殊 broker（即使 broker_group_id 为 0）
   local CSV1="$TMP2/brokers.csv"
   # 首先查询正常的 broker（broker_group_id 不为 0）
-  PGPASSWORD="${OLD_DB_PASS}" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -c "SELECT id, name, broker_group_id, infinity_id FROM broker WHERE deleted IS NULL AND (sub_broker_id IS NULL OR sub_broker_id = 0) AND (broker_group_id IS NOT NULL AND broker_group_id != 0) AND id NOT IN (SELECT DISTINCT sub_broker_id FROM broker WHERE sub_broker_id IS NOT NULL AND sub_broker_id != 0)" -t -A -F"," > "$CSV1"
+  # 使用管道符分隔符，避免 name 字段中的逗号导致解析错误
+  PGPASSWORD="${OLD_DB_PASS}" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -c "SELECT id, name, broker_group_id, infinity_id FROM broker WHERE deleted IS NULL AND (sub_broker_id IS NULL OR sub_broker_id = 0) AND (broker_group_id IS NOT NULL AND broker_group_id != 0) AND id NOT IN (SELECT DISTINCT sub_broker_id FROM broker WHERE sub_broker_id IS NOT NULL AND sub_broker_id != 0)" -t -A -F"|" > "$CSV1"
   # 然后添加已知的特殊 broker（broker_group_id 为 0 或 NULL，但需要特殊处理）
   local special_broker_names=("William (Bill) Gilmour" "Jing (Kayla) Kang" "Hong Gu" "Bozhi Li" "Sopheak (Charlie) Chhaing" "Yan (Anna) Zhang" "Jie (Jane) Xu" "Yiwen (Vicky) Hu")
   for special_name in "${special_broker_names[@]}"; do
