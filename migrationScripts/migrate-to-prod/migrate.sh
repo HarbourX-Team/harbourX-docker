@@ -137,7 +137,11 @@ echo_success "老数据库连接正常"
 
 # ID 映射与 API 工具
 # 强制将映射文件保存到 migrate-to-local 目录，统一管理
+# 覆盖 config.sh 中可能存在的 ID_MAPPING_FILE 定义
+unset ID_MAPPING_FILE
 ID_MAPPING_FILE="$(cd "$SCRIPT_DIR/../migrate-to-local" && pwd)/id_mapping.txt"
+# 确保文件存在（如果目录不存在，touch 会失败，所以先确保目录存在）
+mkdir -p "$(dirname "$ID_MAPPING_FILE")" 2>/dev/null || true
 touch "$ID_MAPPING_FILE"
 
 call_api(){ local m=$1; local e=$2; local d=$3; if [ -z "$d" ]; then curl -s -X "$m" "${API_BASE_URL}${e}" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json"; else curl -s -X "$m" "${API_BASE_URL}${e}" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -d "$d"; fi; }

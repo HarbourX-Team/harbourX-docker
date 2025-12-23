@@ -46,8 +46,8 @@ export OLD_DB_USER="postgres"
 export OLD_DB_NAME="broker"
 export OLD_DB_PASS="postgres"
 
-# 映射文件
-export ID_MAPPING_FILE="migration-report/migrate-prod/id_mapping.txt"
+# 映射文件（已废弃，migrate.sh 中会重新定义）
+# export ID_MAPPING_FILE="migration-report/migrate-prod/id_mapping.txt"
 # CRN映射文件在harbourX根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # migrate-to-prod 在 migrationScripts/migrate-to-prod，所以需要回到 migrationScripts 的父目录（harbourX根目录）
