@@ -4,105 +4,67 @@
 
 ## 快速开始
 
-### 统一入口脚本
-
-使用 `migrate.sh` 作为统一入口：
+### 本地环境
 
 ```bash
-# 查看帮助
-./migrate.sh help
+cd migrate-to-local
+source config.sh
+./migrate.sh
+```
 
-# 迁移到本地环境
-./migrate.sh local
+### 生产环境
 
-# 迁移到生产环境
-./migrate.sh prod
+```bash
+cd migrate-to-prod
 
-# 清理本地数据库
-./migrate.sh clean-local
+# 设置必需的环境变量
+export LOGIN_PASSWORD="your-production-admin-password"
+export PROD_DB_PASS="your-production-db-password"
 
-# 验证本地数据
-./migrate.sh verify-local
-
-# 验证生产数据
-./migrate.sh verify-prod
+# 加载配置并执行迁移
+source config.sh
+./migrate.sh
 ```
 
 ## 目录结构
 
 ```
 migrationScripts/
-├── migrate.sh                          # 统一入口脚本
-├── migrate-broker-groups.sh            # 迁移 Broker Groups
-├── migrate-brokers.sh                  # 迁移 Brokers
-├── fix-local-created-at.sh             # 修复本地 created_at
-├── fix-prod-created-at-via-ssh.sh     # 修复生产 created_at（通过SSH）
-├── diagnose-prod-missing-aggregator.sh # 诊断生产环境错误
-├── verify-created-at.sh                # 验证 created_at
-├── verify-relationships.sh              # 验证关系绑定
-├── clean-local-database.sh             # 清理本地数据库
-├── FIX_AFTER_CALCULATION.md           # 计算后修复说明
-├── migrate-to-local/                   # 本地环境配置
-│   ├── config.sh
-│   ├── migrate.sh
-│   └── README.md
-└── migrate-to-prod/                    # 生产环境配置
-    ├── config.sh
-    ├── migrate.sh
-    └── README.md
+├── migrate-to-local/     # 本地环境脚本（migrate.sh / fix.sh）
+└── migrate-to-prod/      # 生产环境脚本（migrate.sh / fix.sh）
 ```
 
 ## 核心脚本说明
 
-### 迁移脚本
+所有脚本已内聚到两个子目录中，每个目录只保留：
 
-- **migrate-broker-groups.sh**: 迁移 Broker Groups，自动处理 ID 映射和去重
-- **migrate-brokers.sh**: 迁移 Brokers，自动处理权限错误和映射修复
-
-### 修复脚本
-
-- **fix-local-created-at.sh**: 修复本地数据库的 `created_at` 时间戳问题
-- **fix-prod-created-at-via-ssh.sh**: 通过 SSH 修复生产数据库的 `created_at` 时间戳问题
-
-### 诊断脚本
-
-- **diagnose-prod-missing-aggregator.sh**: 诊断生产环境的 `MISSING_AGGREGATOR` 错误
-
-### 验证脚本
-
-- **verify-created-at.sh**: 验证 `created_at` 修复状态
-- **verify-relationships.sh**: 验证并自动修复关系绑定
-
-### 工具脚本
-
-- **clean-local-database.sh**: 清理本地数据库中的所有迁移数据
+- `migrate.sh`：一键迁移（包含 Broker Groups 与 Brokers）
+- `fix.sh`：一键修复 created_at/deleted_at
+- `config.sh`：环境配置
 
 ## 使用流程
 
 ### 本地迁移
 
 ```bash
-# 1. 清理本地数据库（可选）
-./migrate.sh clean-local
-
-# 2. 执行迁移
-./migrate.sh local
-
-# 3. 验证数据
-./migrate.sh verify-local
+cd migrate-to-local
+source config.sh
+./migrate.sh
+# 如需要修复 created_at
+./fix.sh
 ```
 
 ### 生产迁移
 
 ```bash
-# 1. 设置生产环境密码
+cd migrate-to-prod
+source config.sh
 export LOGIN_PASSWORD='your-password'
-
-# 2. 执行迁移
-./migrate.sh prod
-
-# 3. 验证数据
-./migrate.sh verify-prod
+export PROD_DB_PASS='your-db-password'
+./migrate.sh
+# 如需要修复 created_at（通过 SSH 在服务器执行）
+cd ../migrate-to-local
+./fix.sh prod
 ```
 
 ## 环境变量
@@ -120,9 +82,10 @@ export LOGIN_PASSWORD='your-password'
 
 在 `migrate-to-prod/config.sh` 中配置：
 
-- `API_BASE_URL`: API 地址
-- `LOGIN_EMAIL`: 登录邮箱
-- `LOGIN_PASSWORD`: 登录密码（必须设置）
+- `API_BASE_URL`: API 地址（默认: `http://13.54.207.94/api`）
+- `LOGIN_EMAIL`: 登录邮箱（默认: `admin@harbourx.com.au`）
+- `LOGIN_PASSWORD`: 登录密码（**必须通过环境变量设置**）
+- `PROD_DB_PASS`: 生产数据库密码（**必须通过环境变量设置**，用于 fix.sh）
 
 **注意**: 生产环境的 `created_at` 修复通过 SSH 连接到服务器执行，无需配置数据库连接信息。
 
@@ -130,21 +93,10 @@ export LOGIN_PASSWORD='your-password'
 
 ### MISSING_BROKER_GROUP / MISSING_AGGREGATOR
 
-这些错误通常由 `created_at` 时间戳问题引起：
+大多由 created_at 时间戳晚于 loan 的 `settled_date + 12h` 引起。
 
-**本地环境**:
-
-```bash
-./fix-local-created-at.sh
-```
-
-**生产环境**:
-
-```bash
-./fix-prod-created-at-via-ssh.sh
-```
-
-**重要提示**: 如果在上传 RCTI 文件并计算后出现这些错误，需要在计算完成后运行修复脚本。详细说明请查看 `FIX_AFTER_CALCULATION.md`。
+- 本地：`cd migrate-to-local && ./fix.sh`
+- 生产：`cd migrate-to-local && ./fix.sh prod`
 
 ### 权限错误 (12110001)
 
@@ -152,7 +104,7 @@ export LOGIN_PASSWORD='your-password'
 
 1. Broker Group ID 映射是否正确
 2. Broker Group 是否已正确关联到 Aggregator
-3. 使用 `verify-relationships.sh` 自动修复关系
+3. 本地脚本会在迁移后自动修复 Broker Groups 与 Aggregator 的绑定
 
 ### 迁移失败
 
@@ -160,3 +112,11 @@ export LOGIN_PASSWORD='your-password'
 2. 验证登录凭据
 3. 检查数据库连接
 4. 查看脚本输出的详细错误信息
+
+### 生产环境迁移问题
+
+- 如果只迁移了少量 brokers（如 18 个），检查：
+  - CSV 分隔符是否正确（应使用管道符 `|`）
+  - Broker 数量检测逻辑是否正常工作
+  - 强制迁移逻辑是否在 broker 数量 < 50 时生效
+- 查看迁移日志文件了解详细错误信息

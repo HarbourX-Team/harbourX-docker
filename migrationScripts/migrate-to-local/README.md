@@ -10,11 +10,10 @@ source config.sh
 ./migrate.sh
 ```
 
-或使用统一入口：
+修复（如遇 MISSING\_\* 错误或计算后需要修复 created_at/deleted_at）：
 
 ```bash
-cd migrationScripts
-./migrate.sh local
+./fix.sh
 ```
 
 ## 配置说明
@@ -29,6 +28,12 @@ cd migrationScripts
 
 `migrate.sh` 脚本会自动执行以下步骤：
 
-1. 迁移 Broker Groups
-2. 迁移 Brokers
-3. 修复 created_at 时间戳
+1. 迁移 Broker Groups（自动处理 Aggregator 关联并保存映射）
+2. 迁移 Brokers（自动修复无法找到 Broker Group 的情况并重试）
+3. 如有需要，运行 fix.sh 修复 created_at/deleted_at（避免 MISSING_BROKER_GROUP/MISSING_AGGREGATOR）
+
+## 计算后修复（常见问题）
+
+当上传 RCTI 并计算后，新创建的绑定可能使用"当前时间"作为 created_at，晚于历史 `settled_date + 12h`，从而导致查询出错。
+
+修复说明：fix.sh 会将绑定的 created_at 设置为"最早 settled_date 的次日 12:00（悉尼时区）之前"，并清理不合理的 deleted_at。

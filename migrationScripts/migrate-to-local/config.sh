@@ -6,14 +6,28 @@
 # API 配置
 export API_BASE_URL="http://localhost:8080/api"
 
-# 登录凭证（使用具有管理员权限的账户）
-export LOGIN_EMAIL="${LOGIN_EMAIL:-admin@harbourx.com.au}"
+# 登录凭证（使用常用的管理员账户，可用环境变量覆盖）
+export LOGIN_EMAIL="${LOGIN_EMAIL:-haimoneySupport@harbourx.com.au}"
 export LOGIN_PASSWORD="${LOGIN_PASSWORD:-password}"
 
 # 老数据库配置（通过 Kubernetes port-forward）
 export USE_PORT_FORWARD="true"
 export ENVIRONMENT="production"
-export KUBECONFIG_FILE="../../haimoney/haimoney-infrastructure/connection-file/haimoney-commissions-cluster-PROD-kubeconfig.yaml"
+export KUBECONFIG_FILE="${KUBECONFIG_FILE:-../../haimoney/haimoney-infrastructure/connection-file/haimoney-commissions-cluster-PROD-kubeconfig.yaml}"
+# 若上面的相对路径不存在，尝试从本机 haimoney-infra 目录自动发现 kubeconfig
+if [ ! -f "$KUBECONFIG_FILE" ]; then
+  DEFAULT_CONN_DIR="/Users/yafengzhu/Desktop/haimoney/haimoney-infra/connection-file"
+  if [ -d "$DEFAULT_CONN_DIR" ]; then
+    # 优先选择包含 PROD 的 kubeconfig
+    ALT_KUBECONFIG=$(ls -1 "$DEFAULT_CONN_DIR"/*PROD* 2>/dev/null | head -1)
+    if [ -z "$ALT_KUBECONFIG" ]; then
+      ALT_KUBECONFIG=$(ls -1 "$DEFAULT_CONN_DIR"/*kubeconfig*.yaml 2>/dev/null | head -1)
+    fi
+    if [ -n "$ALT_KUBECONFIG" ]; then
+      export KUBECONFIG_FILE="$ALT_KUBECONFIG"
+    fi
+  fi
+fi
 export KUBERNETES_SERVICE="broker-db"
 export PORT_FORWARD_PORT="5434"
 

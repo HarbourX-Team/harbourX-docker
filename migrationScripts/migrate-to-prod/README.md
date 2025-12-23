@@ -11,26 +11,61 @@
 - 使用具有管理员权限的账户
 - 已确认所有配置正确
 
-## 快速开始
+## 快速执行
 
 ```bash
-cd migrate-to-prod
+cd /Users/yafengzhu/Desktop/harbourX/migrationScripts/migrate-to-prod
 
-# 设置生产环境密码（必须）
-export LOGIN_PASSWORD="your-admin-password"
+# 1. 设置密码（必需）
+export LOGIN_PASSWORD="your-production-admin-password"
+export PROD_DB_PASS="your-production-db-password"
 
-# 加载配置并执行迁移
+# 2. 执行迁移
 source config.sh
 ./migrate.sh
 ```
 
-或使用统一入口：
+## 详细步骤
+
+### 步骤 1: 进入目录
 
 ```bash
-cd migrationScripts
-export LOGIN_PASSWORD="your-admin-password"
-./migrate.sh prod
+cd /Users/yafengzhu/Desktop/harbourX/migrationScripts/migrate-to-prod
 ```
+
+### 步骤 2: 设置环境变量
+
+```bash
+# 必需：生产环境管理员密码
+export LOGIN_PASSWORD="your-production-admin-password"
+
+# 必需：生产数据库密码（用于 fix.sh prod 修复 created_at）
+export PROD_DB_PASS="your-production-db-password"
+
+# 可选：如果默认邮箱不对
+export LOGIN_EMAIL="admin@harbourx.com.au"
+```
+
+### 步骤 3: 加载配置
+
+```bash
+source config.sh
+```
+
+### 步骤 4: 执行迁移
+
+```bash
+./migrate.sh
+```
+
+脚本会：
+
+1. 要求确认（输入 `yes`）
+2. 迁移 Broker Groups（优先迁移特殊 broker groups）
+3. 清理错误的 (Old) broker groups
+4. 迁移 Brokers（包括硬编码映射的特殊 broker）
+5. 迁移 Sub-Brokers (DIRECT)
+6. 自动调用 `fix.sh prod` 修复 created_at/deleted_at
 
 ## 配置说明
 
@@ -44,8 +79,10 @@ export LOGIN_PASSWORD="your-admin-password"
 
 ## 迁移步骤
 
-`migrate.sh` 脚本会自动执行以下步骤：
+`migrate.sh`：执行 Broker Groups 与 Brokers 的迁移；如需修复 created_at/deleted_at，请在 `migrate-to-local/` 目录运行 `./fix.sh prod`（通过 SSH 在服务器执行）。
 
-1. 迁移 Broker Groups
-2. 迁移 Brokers
-3. 修复 created_at 时间戳（通过 SSH 连接到生产服务器）
+## 注意事项
+
+- 脚本会自动跳过已存在的数据，不会重复创建
+- 迁移完成后会自动修复 created_at 为 2000-01-01
+- 如果 fix.sh prod 失败，可以手动运行：`cd ../migrate-to-local && ./fix.sh prod`
