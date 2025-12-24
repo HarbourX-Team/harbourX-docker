@@ -26,3 +26,7 @@ migrationScripts/id_mapping*.txt
 migrationScripts/*.txt
 migrationScripts/**/*-report-*.txt
 
+# Kubernetes config files (should be placed manually in migrationScripts directory)
+migrationScripts/*-kubeconfig.yaml
+migrationScripts/**/*-kubeconfig.yaml
+

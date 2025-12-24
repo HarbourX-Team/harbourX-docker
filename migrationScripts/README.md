@@ -6,6 +6,11 @@
 
 ### 本地环境
 
+**重要：首次使用前，请将 Kubernetes kubeconfig 文件放置到 `migrationScripts` 目录下**
+
+1. 将 `haimoney-commissions-cluster-PROD-kubeconfig.yaml` 文件复制到 `migrationScripts/` 目录
+2. 执行迁移：
+
 ```bash
 cd migrate-to-local
 source config.sh
@@ -78,6 +83,12 @@ cd ../migrate-to-local
 - `LOGIN_PASSWORD`: 登录密码
 - `LOCAL_DB_*`: 本地数据库配置
 
+**Kubernetes kubeconfig 文件配置：**
+
+- 将 `haimoney-commissions-cluster-PROD-kubeconfig.yaml` 文件放置到 `migrationScripts/` 目录下
+- 该文件用于通过 Kubernetes port-forward 连接到生产数据库
+- 该文件已被 `.gitignore` 忽略，不会提交到版本控制
+
 ### 生产环境
 
 在 `migrate-to-prod/config.sh` 中配置：
@@ -90,6 +101,14 @@ cd ../migrate-to-local
 **注意**: 生产环境的 `created_at` 修复通过 SSH 连接到服务器执行，无需配置数据库连接信息。
 
 ## 故障排除
+
+### Kubeconfig 文件未找到
+
+如果遇到 kubeconfig 文件未找到的错误：
+
+1. 确认 `haimoney-commissions-cluster-PROD-kubeconfig.yaml` 文件已放置在 `migrationScripts/` 目录下
+2. 检查文件权限，确保脚本有读取权限
+3. 验证文件路径是否正确（脚本会自动从 `migrationScripts/` 目录查找）
 
 ### MISSING_BROKER_GROUP / MISSING_AGGREGATOR
 

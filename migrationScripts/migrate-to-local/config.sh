@@ -13,21 +13,8 @@ export LOGIN_PASSWORD="${LOGIN_PASSWORD:-password}"
 # 老数据库配置（通过 Kubernetes port-forward）
 export USE_PORT_FORWARD="true"
 export ENVIRONMENT="production"
-export KUBECONFIG_FILE="${KUBECONFIG_FILE:-../../haimoney/haimoney-infrastructure/connection-file/haimoney-commissions-cluster-PROD-kubeconfig.yaml}"
-# 若上面的相对路径不存在，尝试从本机 haimoney-infra 目录自动发现 kubeconfig
-if [ ! -f "$KUBECONFIG_FILE" ]; then
-  DEFAULT_CONN_DIR="/Users/yafengzhu/Desktop/haimoney/haimoney-infra/connection-file"
-  if [ -d "$DEFAULT_CONN_DIR" ]; then
-    # 优先选择包含 PROD 的 kubeconfig
-    ALT_KUBECONFIG=$(ls -1 "$DEFAULT_CONN_DIR"/*PROD* 2>/dev/null | head -1)
-    if [ -z "$ALT_KUBECONFIG" ]; then
-      ALT_KUBECONFIG=$(ls -1 "$DEFAULT_CONN_DIR"/*kubeconfig*.yaml 2>/dev/null | head -1)
-    fi
-    if [ -n "$ALT_KUBECONFIG" ]; then
-      export KUBECONFIG_FILE="$ALT_KUBECONFIG"
-    fi
-  fi
-fi
+# Kubeconfig 文件应放在 migrationScripts 目录下
+export KUBECONFIG_FILE="../haimoney-commissions-cluster-PROD-kubeconfig.yaml"
 export KUBERNETES_SERVICE="broker-db"
 export PORT_FORWARD_PORT="5434"
 
@@ -41,9 +28,9 @@ export OLD_DB_PASS="postgres"
 # 映射文件（已废弃，migrate.sh 中会重新定义）
 # export ID_MAPPING_FILE="migration-report/migrate-local/id_mapping_local.txt"
 # CRN映射文件在harbourX根目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # migrate-to-local 在 migrationScripts/migrate-to-local，所以需要回到 migrationScripts 的父目录（harbourX根目录）
 # 从 migrationScripts/migrate-to-local 回到 harbourX 根目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARBOURX_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # 确保路径正确（如果计算错误，使用绝对路径）
 if [ ! -f "${HARBOURX_ROOT}/acr_crn_mapping.csv" ]; then

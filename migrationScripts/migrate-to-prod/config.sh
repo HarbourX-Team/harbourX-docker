@@ -7,23 +7,21 @@
 export API_BASE_URL="http://13.54.207.94/api"
 
 # 登录凭证（使用具有管理员权限的账户）
-export LOGIN_EMAIL="${LOGIN_EMAIL:-admin@harbourx.com.au}"
-export LOGIN_PASSWORD="${LOGIN_PASSWORD}"
+export LOGIN_EMAIL="haimoneySupport@harbourx.com.au"
+export LOGIN_PASSWORD="password"
 
 # 老数据库配置（通过 Kubernetes port-forward）
 export USE_PORT_FORWARD="true"
 export ENVIRONMENT="production"
 
-# 自动发现 kubeconfig（优先使用你提供的 haimoney-infra 目录）
-CONNECTION_DIR_DEFAULT="/Users/yafengzhu/Desktop/haimoney/haimoney-infra/connection-file"
+# Kubeconfig 文件应放在 migrationScripts 目录下
+# 自动发现 kubeconfig（从 migrationScripts 目录查找）
 if [ -z "$PROD_KUBECONFIG_FILE" ]; then
-  if [ -d "$CONNECTION_DIR_DEFAULT" ]; then
-    # 优先匹配含 PROD 的 kubeconfig
-    PROD_KUBECONFIG_FILE=$(ls -1 "$CONNECTION_DIR_DEFAULT"/*PROD* 2>/dev/null | head -1)
-    if [ -z "$PROD_KUBECONFIG_FILE" ]; then
-      # 退化匹配任何 kubeconfig 文件
-      PROD_KUBECONFIG_FILE=$(ls -1 "$CONNECTION_DIR_DEFAULT"/*kubeconfig*.yaml 2>/dev/null | head -1)
-    fi
+  # 优先匹配含 PROD 的 kubeconfig
+  PROD_KUBECONFIG_FILE=$(ls -1 ../*-PROD-kubeconfig.yaml 2>/dev/null | head -1)
+  if [ -z "$PROD_KUBECONFIG_FILE" ]; then
+    # 退化匹配任何 kubeconfig 文件
+    PROD_KUBECONFIG_FILE=$(ls -1 ../*-kubeconfig.yaml 2>/dev/null | head -1)
   fi
 fi
 
@@ -49,8 +47,8 @@ export OLD_DB_PASS="postgres"
 # 映射文件（已废弃，migrate.sh 中会重新定义）
 # export ID_MAPPING_FILE="migration-report/migrate-prod/id_mapping.txt"
 # CRN映射文件在harbourX根目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # migrate-to-prod 在 migrationScripts/migrate-to-prod，所以需要回到 migrationScripts 的父目录（harbourX根目录）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARBOURX_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # 确保路径正确（如果计算错误，使用绝对路径）
 if [ ! -f "${HARBOURX_ROOT}/acr_crn_mapping.csv" ]; then
