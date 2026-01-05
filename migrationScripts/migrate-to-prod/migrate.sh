@@ -162,6 +162,16 @@ get_crn_from_acr(){ local broker_name="$1"; [ -f "$ACR_CRN_MAPPING_FILE" ] || { 
 migrate_broker_groups(){
   echo ""; echo_info "步骤 1: 迁移 Broker Groups..."
   
+  # 从老系统的 admin_settings 表读取 company_bank_code
+  echo_info "从老系统读取 company_bank_code..."
+  local default_bank_code=$(PGPASSWORD="${OLD_DB_PASS}" psql -h "$OLD_DB_HOST" -p "$OLD_DB_PORT" -U "$OLD_DB_USER" -d "$OLD_DB_NAME" -t -A -c "SELECT company_bank_code FROM admin_settings WHERE id = 1 LIMIT 1;" 2>/dev/null | tr -d ' ' | tr '[:lower:]' '[:upper:]')
+  if [ -z "$default_bank_code" ] || [ "$default_bank_code" = "NULL" ] || [ "$default_bank_code" = "" ]; then
+    echo_warn "  无法从 admin_settings 读取 company_bank_code，使用默认值 'WBC'"
+    default_bank_code="WBC"
+  else
+    echo_success "  成功读取 company_bank_code: $default_bank_code"
+  fi
+  
   # 优先迁移三个特殊的 broker group（用于硬编码映射）
   echo_info "优先迁移特殊 broker groups（用于硬编码映射）..."
   local special_bg_names=("Great Life Finance Pty Ltd" "PRESTIGE CAPITAL ADVISORS PTY LTD" "Model Max Pty Ltd")
@@ -188,8 +198,10 @@ migrate_broker_groups(){
       [ -z "$acc_name" ] || [ "$acc_name" = "NULL" ] && acc_name="${name} Bank Account"
       [ -z "$bsb_clean" ] || [ "$bsb_clean" = "0" ] && bsb_clean="123456"
       [ -z "$account_clean" ] || [ "$account_clean" = "0" ] && account_clean="12345678"
+      # bankCode is required (NOT NULL in database), use value from admin_settings
+      local bank_code="${default_bank_code:-WBC}"
       
-      local json=$(jq -n --arg name "$name" --argjson abn "$abn_clean" --arg bank_account_name "$acc_name" --argjson bsb "$bsb_clean" --argjson account "$account_clean" --argjson aggregator_id "$AGG_ID" --arg email "$email" --arg phone "$phone" --arg address "$address" '{name:$name,abn:$abn,bankAccountName:$bank_account_name,bankAccountBsb:$bsb,bankAccountNumber:$account,aggregatorCompanyId:$aggregator_id} + (if $email != "" and $email != "NULL" then {email:$email} else {} end) + (if $phone != "" and $phone != "NULL" then {phoneNumber:$phone} else {} end) + (if $address != "" and $address != "NULL" then {address:$address} else {} end)')
+      local json=$(jq -n --arg name "$name" --argjson abn "$abn_clean" --arg bank_code "$bank_code" --arg bank_account_name "$acc_name" --argjson bsb "$bsb_clean" --argjson account "$account_clean" --argjson aggregator_id "$AGG_ID" --arg email "$email" --arg phone "$phone" --arg address "$address" '{name:$name,abn:$abn,bankCode:$bank_code,bankAccountName:$bank_account_name,bankAccountBsb:$bsb,bankAccountNumber:$account,aggregatorCompanyId:$aggregator_id} + (if $email != "" and $email != "NULL" then {email:$email} else {} end) + (if $phone != "" and $phone != "NULL" then {phoneNumber:$phone} else {} end) + (if $address != "" and $address != "NULL" then {address:$address} else {} end)')
       local resp=$(call_api POST "/company/broker-group" "$json"); local code=$(echo "$resp" | jq -r '.code // "unknown"'); local nid=$(echo "$resp" | jq -r '.data.companies[0].id // empty')
       if [ "$code" = "0" ] && [ -n "$nid" ] && [ "$nid" != "null" ]; then
         echo_success "  成功迁移 Broker Group $oid -> $nid: $name"
@@ -257,9 +269,11 @@ migrate_broker_groups(){
     [ -z "$acc_name" ] || [ "$acc_name" = "NULL" ] && acc_name="${name} Bank Account"
     [ -z "$bsb_clean" ] || [ "$bsb_clean" = "0" ] && bsb_clean="123456"
     [ -z "$account_clean" ] || [ "$account_clean" = "0" ] && account_clean="12345678"
+    # bankCode is required (NOT NULL in database), use value from admin_settings
+    local bank_code="${default_bank_code:-WBC}"
     local existing_id=$(find_existing_broker_group "$name" "$abn_clean" 2>/dev/null || echo "")
     if [ -n "$existing_id" ] && [ "$existing_id" != "null" ]; then echo_warn "Broker Group $oid 已存在 (新ID: $existing_id): $name"; echo "$oid:$existing_id" >> "${ID_MAPPING_FILE}.tmp"; ((skip++)); continue; fi
-    local json=$(jq -n --arg name "$name" --argjson abn "$abn_clean" --arg bank_account_name "$acc_name" --argjson bsb "$bsb_clean" --argjson account "$account_clean" --argjson aggregator_id "$AGG_ID" --arg email "$email" --arg phone "$phone" --arg address "$address" '{name:$name,abn:$abn,bankAccountName:$bank_account_name,bankAccountBsb:$bsb,bankAccountNumber:$account,aggregatorCompanyId:$aggregator_id} + (if $email != "" and $email != "NULL" then {email:$email} else {} end) + (if $phone != "" and $phone != "NULL" then {phoneNumber:$phone} else {} end) + (if $address != "" and $address != "NULL" then {address:$address} else {} end)')
+    local json=$(jq -n --arg name "$name" --argjson abn "$abn_clean" --arg bank_code "$bank_code" --arg bank_account_name "$acc_name" --argjson bsb "$bsb_clean" --argjson account "$account_clean" --argjson aggregator_id "$AGG_ID" --arg email "$email" --arg phone "$phone" --arg address "$address" '{name:$name,abn:$abn,bankCode:$bank_code,bankAccountName:$bank_account_name,bankAccountBsb:$bsb,bankAccountNumber:$account,aggregatorCompanyId:$aggregator_id} + (if $email != "" and $email != "NULL" then {email:$email} else {} end) + (if $phone != "" and $phone != "NULL" then {phoneNumber:$phone} else {} end) + (if $address != "" and $address != "NULL" then {address:$address} else {} end)')
     local resp=$(call_api POST "/company/broker-group" "$json"); local code=$(echo "$resp" | jq -r '.code // "unknown"'); local nid=$(echo "$resp" | jq -r '.data.companies[0].id // empty')
     if [ "$code" = "0" ] && [ -n "$nid" ] && [ "$nid" != "null" ]; then
       echo_success "Broker Group $oid -> $nid: $name"
