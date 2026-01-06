@@ -40,7 +40,7 @@ services:
   backend:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/backend/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourx}/dockerfiles/backend/Dockerfile
       args:
         BACKEND_DIR: ${BACKEND_DIR:-HarbourX-Backend}
     container_name: harbourx-backend-dev

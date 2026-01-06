@@ -40,16 +40,27 @@ services:
   backend:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/backend/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourx}/dockerfiles/backend/Dockerfile
       args:
         BACKEND_DIR: ${BACKEND_DIR:-HarbourX-Backend}
     container_name: harbourx-backend
     environment:
-      - SPRING_PROFILES_ACTIVE=base,dev
-      - DB_IP=postgres
+      # Spring Profiles: Use 'prod,rds' for RDS, 'base,dev' for local Docker PostgreSQL
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-base,dev}
+      # Database Configuration
+      # For Docker PostgreSQL (default) - only set when NOT using RDS:
+      # When using RDS, these should NOT be set to avoid conflicts
+      - DB_IP=${DB_IP:-postgres}
       - DB_PORT=${DB_PORT:-5432}
-      - DB_USER=${POSTGRES_USER:-harbourx}
-      - DB_PASS=${POSTGRES_PASSWORD:-harbourx_password}
+      - DB_USER=${DB_USER:-${POSTGRES_USER:-harbourx}}
+      - DB_PASS=${DB_PASS:-${POSTGRES_PASSWORD:-harbourx_password}}
+      # For AWS RDS (when SPRING_PROFILES_ACTIVE includes 'rds'):
+      # application-rds.properties will use these instead of DB_IP/DB_USER/DB_PASS
+      - DB_RDS_ENDPOINT=${DB_RDS_ENDPOINT}
+      - DB_RDS_PORT=${DB_RDS_PORT:-5432}
+      - DB_RDS_DATABASE=${DB_RDS_DATABASE:-harbourx}
+      - DB_RDS_USERNAME=${DB_RDS_USERNAME}
+      - DB_RDS_PASSWORD=${DB_RDS_PASSWORD}
       - JWT_SECRET=${JWT_SECRET}
       # AWS S3 Configuration (required for RCTI file upload)
       # Set these in .env file or as environment variables
@@ -62,9 +73,10 @@ services:
       - SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}
     ports:
       - "8080:8080"
+    # depends_on: postgres - Commented out when using RDS
+    # When using RDS, remove or comment out the depends_on to avoid waiting for local postgres
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     networks:
       - harbourx-network
     healthcheck:
@@ -98,7 +110,7 @@ services:
   ai-module:
     build:
       context: ${PROJECT_ROOT:-..}
-      dockerfile: ${DOCKER_DIR:-harbourX}/dockerfiles/ai-module/Dockerfile
+      dockerfile: ${DOCKER_DIR:-harbourx}/dockerfiles/ai-module/Dockerfile
       args:
         AI_MODULE_DIR: ${AI_MODULE_DIR:-AI-Module}
     container_name: harbourx-ai-module
@@ -149,10 +161,10 @@ services:
   frontend:
     build:
       context: ${PROJECT_ROOT:-..}/${FRONTEND_DIR:-HarbourX-Frontend}
-      dockerfile: ../${DOCKER_DIR:-harbourX}/dockerfiles/frontend/Dockerfile
+      dockerfile: ../${DOCKER_DIR:-harbourx}/dockerfiles/frontend/Dockerfile
       args:
         FRONTEND_DIR: ${FRONTEND_DIR:-HarbourX-Frontend}
-        HARBOURX_DIR: ${DOCKER_DIR:-harbourX}
+        HARBOURX_DIR: ${DOCKER_DIR:-harbourx}
     container_name: harbourx-frontend
     environment:
       - NODE_ENV=production
