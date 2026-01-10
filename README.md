@@ -1,8 +1,9 @@
 # HarbourX Docker 部署指南
 
-> **最后更新**: 2025-01-09  
-> **部署方式**: AWS Systems Manager (SSM) Run Command (生产环境)  
-> **本地开发**: Docker Compose
+> **最后更新**: 2025-01-10  
+> **部署方式**: AWS Systems Manager (SSM) Run Command (Staging 环境)  
+> **本地开发**: Docker Compose  
+> **环境流程**: Dev → Staging (main) → Release (production)
 
 HarbourX 系统的 Docker 化部署配置、CI/CD 流程和 AWS EC2 部署指南。
 
@@ -11,12 +12,13 @@ HarbourX 系统的 Docker 化部署配置、CI/CD 流程和 AWS EC2 部署指南
 ## 📋 目录
 
 - [🚀 快速开始](#-快速开始)
+- [🌍 环境管理](#-环境管理)
 - [📦 服务说明](#-服务说明)
 - [🌐 访问地址](#-访问地址)
 - [🔧 常用命令](#-常用命令)
 - [🐳 Docker 配置说明](#-docker-配置说明)
 - [🔄 CI/CD 部署流程](#-cicd-部署流程)
-- [🚀 生产环境部署](#-生产环境部署)
+- [🚀 Staging 环境部署](#-staging-环境部署)
 - [🐛 故障排查](#-故障排查)
 - [📝 文件说明](#-文件说明)
 
@@ -37,15 +39,15 @@ HarbourX 系统的 Docker 化部署配置、CI/CD 流程和 AWS EC2 部署指南
 cd harbourX
 
 # 本地完整部署（推荐首次使用）
-./harbourx.sh deploy local          # 生产环境
+./harbourx.sh deploy local          # 本地环境（模拟 staging）
 ./harbourx.sh deploy local dev      # 开发环境（热重载）
 
 # 或快速启动（已部署过）
-./harbourx.sh docker start          # 生产环境
+./harbourx.sh docker start          # 本地环境
 ./harbourx.sh docker start:dev      # 开发环境
 
 # 或直接使用 Docker Compose
-docker compose up -d                 # 生产环境
+docker compose up -d                 # 本地环境
 docker compose -f docker-compose.dev.yml up -d  # 开发环境
 ```
 
@@ -65,7 +67,37 @@ cp env.example .env
 - 参考 `env.example` 文件获取完整的环境变量列表
 - 本地开发使用 `docker-compose.yml` 时，需要配置 PostgreSQL、JWT Secret 等
 - AI-Module 需要单独的 `.env` 文件：`../AI-Module/.env`
-- **生产环境部署**通过 GitHub Actions CI/CD 自动处理，配置存储在 EC2 实例的 `/opt/harbourx/.env` 文件中
+- **Staging 环境部署**通过 GitHub Actions CI/CD 自动处理，配置存储在 EC2 实例的 `/opt/harbourx/.env` 文件中
+
+---
+
+## 🌍 环境管理
+
+### 环境流程 (Dev → Staging → Release)
+
+```
+开发环境 (Dev)
+    ↓ (Feature Branch PR → main)
+Staging 环境 (main 分支自动部署)
+    ↓ (Release Branch / Tag)
+Production 环境 (Release 版本)
+```
+
+### 当前环境配置
+
+| 环境       | 分支/触发          | 部署目标          | Spring Profile      | RDS 实例        |
+| ---------- | ------------------ | ----------------- | ------------------- | --------------- |
+| **Dev**    | `develop` (计划)   | 本地 Docker       | `base,dev`          | 本地 PostgreSQL |
+| **Staging** | `main` (当前)      | EC2 (Staging)     | `staging,rds`       | RDS (Staging)   |
+| **Release** | `release/*` (计划) | EC2 (Production)  | `prod,rds`          | RDS (Production)|
+
+### 当前状态
+
+- ✅ **Staging 环境已配置**: main 分支 Push 会自动部署到 Staging 环境
+- 🔄 **Dev 环境**: 计划中（develop 分支）
+- 🔄 **Production 环境**: 计划中（release 分支或标签触发）
+
+**注意**: 当前所有 main 分支的部署都指向 **Staging 环境**，不再是 Production。
 
 ---
 
@@ -203,16 +235,17 @@ docker compose -f docker-compose.dev.yml down
 - `./harbourx.sh docker start:dev`
 
 **网络配置**:
-- 网络名: `harbourx-network-dev` (与生产环境隔离)
+- 网络名: `harbourx-network-dev` (与 Staging 环境隔离)
 
-#### 3. `docker-compose.prod.yml` - EC2 生产配置 ⚠️
+#### 3. `docker-compose.prod.yml` / `docker-compose.staging.yml` - EC2 Staging 配置 ⚠️
 
-**用途**: EC2 生产环境配置模板
+**用途**: EC2 Staging 环境配置模板（参考）
 
 **注意**: 
-- ⚠️ **CD 工作流会自动生成此文件**，本地文件主要用于参考
-- 实际部署时由 GitHub Actions 工作流自动生成
-- 如需修改生产配置，请更新 `HarbourX-Backend/.github/workflows/cd.yml`
+- ⚠️ **CD 工作流会自动生成 `docker-compose.staging.yml`**，本地文件主要用于参考
+- 实际部署时由 GitHub Actions 工作流自动生成到 EC2
+- 如需修改 Staging 配置，请更新 `HarbourX-Backend/.github/workflows/cd.yml`
+- **当前 main 分支部署到 Staging 环境**（不再是 Production）
 
 **包含服务**:
 - `backend` - Spring Boot 后端（连接 RDS）
@@ -277,42 +310,51 @@ networks:
 
 ## 🔄 CI/CD 部署流程
 
-### ⚠️ 重要：生产环境部署方式
+### ⚠️ 重要：Staging 环境部署方式
 
-**Backend 和 Frontend 已配置 CI/CD，推荐使用自动部署。同时提供独立的手动部署命令作为备用方案。**
+**Backend 和 Frontend 已配置 CI/CD，main 分支 Push 会自动部署到 Staging 环境。同时提供独立的手动部署命令作为备用方案。**
 
-### 部署架构
+### 部署架构（Staging 环境）
 
 ```
 本地开发 (docker-compose)
     ↓
 开发者 Push 代码到 main 分支
     ↓
-GitHub Actions 自动触发 CI/CD
+GitHub Actions 自动触发 CD 工作流
     ↓
 构建 Docker 镜像 → 推送到 Amazon ECR
     ↓
 AWS SSM (Backend) / SSH (Frontend) 自动部署
     ↓
-EC2 Instance (生产环境)
+EC2 Instance (Staging 环境)
     ↓
-Amazon RDS (数据库)
+Amazon RDS (Staging 数据库)
 ```
+
+### 环境流程说明
+
+- **main 分支** → 自动部署到 **Staging 环境**（当前配置）
+- **release 分支** → 部署到 **Production 环境**（计划中）
+- **develop 分支** → 部署到 **Dev 环境**（计划中）
 
 ### 部署方式对比
 
 #### 方式 1: GitHub Actions CI/CD（推荐，自动部署）
 
 **Backend (HarbourX-Backend)**:
-- **工作流**: `.github/workflows/cd.yml`
+- **工作流**: `.github/workflows/cd.yml` (Staging)
 - **触发**: Push 到 `main` 分支（修改 `src/**`, `pom.xml`, `Dockerfile` 等）
+- **部署目标**: Staging 环境 (EC2 + RDS)
+- **Spring Profile**: `staging,rds`
 - **部署方式**: AWS Systems Manager (SSM) Run Command
 - **认证**: IAM OIDC（无需 SSH 密钥）
 - **优势**: 自动化、可追溯、符合最佳实践
 
 **Frontend (HarbourX-Frontend)**:
-- **工作流**: `.github/workflows/CD.yml`
+- **工作流**: `.github/workflows/CD.yml` (Staging)
 - **触发**: Push 到 `main` 分支（修改 `app/**` 等）
+- **部署目标**: Staging 环境 (EC2)
 - **部署方式**: SSH 部署到 EC2
 - **认证**: GitHub Secrets (EC2_SSH_KEY)
 - **优势**: 自动化、版本控制、一键部署
@@ -398,7 +440,7 @@ Amazon RDS (数据库)
    - ECR 登录
    - 拉取最新镜像
    - 数据库迁移 (带锁，防止并发)
-   - 自动生成 docker-compose.prod.yml ✅
+   - 自动生成 docker-compose.staging.yml ✅
    - 更新 .env 文件 (ECR_REGISTRY, ECR_REPOSITORY, IMAGE_TAG)
    - 自动安装 docker-compose (如果不存在) ✅
    - 停止旧容器
@@ -412,7 +454,7 @@ Amazon RDS (数据库)
 
 #### 关键特性
 
-**1. 自动生成 docker-compose.prod.yml**
+**1. 自动生成 docker-compose.staging.yml**
 - ✅ 配置在 GitHub Actions 工作流中（版本控制）
 - ✅ 每次部署自动生成最新配置
 - ✅ 无需手动在 EC2 上创建或更新文件
@@ -454,14 +496,16 @@ Amazon RDS (数据库)
 
 ---
 
-## 🚀 生产环境部署
+## 🚀 Staging 环境部署
 
-### EC2 环境要求
+> **当前配置**: main 分支自动部署到 Staging 环境
+
+### EC2 环境要求（Staging）
 
 #### 必需配置
 
 1. **IAM Instance Profile**
-   - 附加到 EC2 实例
+   - 附加到 EC2 实例（Staging）
    - 包含 ECR 拉取权限
 
 2. **SSM Agent**
@@ -470,15 +514,15 @@ Amazon RDS (数据库)
 
 3. **.env 文件** (`/opt/harbourx/.env`)
    ```bash
-   # 数据库配置 (RDS)
-   DB_IP=your-rds-endpoint.rds.amazonaws.com
-   DB_PORT=5432
-   DB_NAME=harbourx
-   DB_USER=your_db_user
-   DB_PASS=your_db_password
+   # 数据库配置 (RDS - Staging)
+   DB_RDS_ENDPOINT=your-rds-staging-endpoint.rds.amazonaws.com
+   DB_RDS_PORT=5432
+   DB_RDS_DATABASE=harbourx
+   DB_RDS_USERNAME=your_db_user
+   DB_RDS_PASSWORD=your_db_password
    
    # 应用配置
-   SPRING_PROFILES_ACTIVE=prod,rds
+   SPRING_PROFILES_ACTIVE=staging,rds
    JWT_SECRET=your_jwt_secret
    
    # ECR 配置 (部署时自动更新)
@@ -490,39 +534,39 @@ Amazon RDS (数据库)
 4. **目录结构**
    ```
    /opt/harbourx/
-   ├── .env                    # 必需，手动创建（包含敏感信息）
-   └── docker-compose.prod.yml # 自动生成（CD 工作流）
+   ├── .env                      # 必需，手动创建（包含敏感信息）
+   └── docker-compose.staging.yml # 自动生成（CD 工作流）
    ```
 
-### 首次部署
+### 首次部署（Staging）
 
 #### 1. 创建 .env 文件（手动）
 
 ```bash
-# 通过 SSM Session Manager 或保留的 SSH 访问 EC2
+# 通过 SSM Session Manager 或保留的 SSH 访问 EC2 (Staging)
 cd /opt/harbourx
 
 # 创建 .env 文件（包含所有敏感信息）
 cat > .env << 'EOF'
-DB_IP=your-rds-endpoint.rds.amazonaws.com
-DB_PORT=5432
-DB_NAME=harbourx
-DB_USER=your_db_user
-DB_PASS=your_db_password
+DB_RDS_ENDPOINT=your-rds-staging-endpoint.rds.amazonaws.com
+DB_RDS_PORT=5432
+DB_RDS_DATABASE=harbourx
+DB_RDS_USERNAME=your_db_user
+DB_RDS_PASSWORD=your_db_password
 JWT_SECRET=your_jwt_secret
-SPRING_PROFILES_ACTIVE=prod,rds
+SPRING_PROFILES_ACTIVE=staging,rds
 EOF
 ```
 
-#### 2. 执行 CD 工作流
+#### 2. 执行 CD 工作流（自动触发）
 
-- Push 代码到 `main` 分支，或
+- Push 代码到 `main` 分支（自动部署到 Staging），或
 - 在 GitHub Actions 页面手动触发 "Continuous Deployment" 工作流
 
-#### 3. 验证部署
+#### 3. 验证部署（Staging）
 
 ```bash
-# 通过 SSM Session Manager 访问 EC2
+# 通过 SSM Session Manager 访问 EC2 (Staging)
 cd /opt/harbourx
 
 # 检查容器状态
@@ -535,13 +579,13 @@ curl http://localhost:8080/actuator/health
 docker logs harbourx-backend --tail=50 -f
 ```
 
-### 后续部署
+### 后续部署（Staging）
 
 - ✅ **完全自动化**: 只需 Push 代码到 `main` 分支
-- ✅ **CD 工作流自动执行**:
+- ✅ **CD 工作流自动执行**（Staging 环境）:
   - 构建镜像 → 推送到 ECR
   - 通过 SSM 自动部署到 EC2
-  - 自动生成 docker-compose.prod.yml
+  - 自动生成 docker-compose.staging.yml
   - 自动安装 docker-compose（如果不存在）
   - 执行数据库迁移
   - 更新容器
@@ -681,7 +725,7 @@ docker logs harbourx-backend --tail=200 -f
 cd /opt/harbourx
 
 echo "=== 文件检查 ==="
-[ -f "docker-compose.prod.yml" ] && echo "✅ docker-compose.prod.yml 存在" || echo "❌ 不存在"
+[ -f "docker-compose.staging.yml" ] && echo "✅ docker-compose.staging.yml 存在" || echo "❌ 不存在"
 [ -f ".env" ] && echo "✅ .env 文件存在" || echo "❌ 不存在"
 
 echo "=== docker-compose 检查 ==="
@@ -718,8 +762,9 @@ fi
 - **使用**: `./harbourx.sh docker start:dev`
 
 **`docker-compose.prod.yml`** ⚠️ **可选（参考）**
-- **用途**: EC2 生产环境配置模板
-- **注意**: CD 工作流会自动生成，本地文件主要用于参考
+- **用途**: EC2 Staging 环境配置模板（参考）
+- **注意**: CD 工作流会自动生成 `docker-compose.staging.yml`，本地文件主要用于参考
+- **当前环境**: main 分支部署到 Staging，不再是 Production
 - **使用**: 手动部署或配置参考
 
 #### Dockerfile 文件
@@ -756,7 +801,8 @@ fi
 |------|---------|---------|---------|------|
 | `docker-compose.yml` | ✅ | ✅ | ❌ | 本地完整环境 |
 | `docker-compose.dev.yml` | ✅ | ❌ | ❌ | 本地开发（热重载） |
-| `docker-compose.prod.yml` | ⚠️ | ⚠️ | ✅ | EC2 部署（自动生成） |
+| `docker-compose.prod.yml` | ⚠️ | ⚠️ | ✅ | EC2 Staging 配置（参考） |
+| `docker-compose.staging.yml` | ❌ | ❌ | ✅ | EC2 Staging 部署（自动生成） |
 | `dockerfiles/*/Dockerfile` | ✅ | ✅ | ✅ | 构建镜像 |
 
 ---
@@ -784,7 +830,7 @@ fi
 ### 4. 版本控制
 
 - ✅ 所有配置在 GitHub 仓库中版本控制
-- ✅ docker-compose.prod.yml 在工作流中生成，确保一致性
+- ✅ docker-compose.staging.yml 在工作流中生成，确保一致性
 - ✅ 配置变更通过 PR 审查
 
 ### 5. 可靠性
@@ -834,7 +880,7 @@ fi
   - 迁移到 SSM 部署方式
   - 移除 SSH 依赖
   - 实现 IAM OIDC 认证
-  - 自动生成 docker-compose.prod.yml
+  - 自动生成 docker-compose.staging.yml
   - 自动安装 docker-compose
   - 添加智能回退机制
   - 统一文档结构

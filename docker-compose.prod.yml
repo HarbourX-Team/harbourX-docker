@@ -1,15 +1,18 @@
-# Production Docker Compose Configuration
+# Staging Docker Compose Configuration
 # 
 # ⚠️ 注意: 此文件主要用于参考和手动部署
 # 
-# CD 工作流 (SSM) 现在会自动生成此文件，不再依赖此文件
-# 如需修改生产配置，请更新 GitHub Actions 工作流中的配置:
+# CD 工作流 (SSM) 现在会自动生成 docker-compose.staging.yml，不再依赖此文件
+# 如需修改 staging 配置，请更新 GitHub Actions 工作流中的配置:
 # HarbourX-Backend/.github/workflows/cd.yml (Deploy to EC2 via SSM 步骤)
+# 
+# 当前 main 分支部署到 Staging 环境
+# 未来计划: dev -> staging -> release (production) 流程
 # 
 # For EC2 deployment with Amazon RDS PostgreSQL
 # All services use the same network for inter-service communication
 
-name: harbourx-prod
+name: harbourx-staging
 
 services:
   # Backend Service (Spring Boot)
@@ -24,8 +27,8 @@ services:
     
     # Explicit environment variables (override .env if needed)
     environment:
-      # Spring Profiles: Use 'prod,rds' for RDS
-      - SPRING_PROFILES_ACTIVE=prod,rds
+      # Spring Profiles: Use 'staging,rds' for Staging environment with RDS
+      - SPRING_PROFILES_ACTIVE=staging,rds
       
       # Database Configuration (RDS)
       # These should be set in .env file:
