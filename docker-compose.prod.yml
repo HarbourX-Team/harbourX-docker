@@ -1,0 +1,128 @@
+# Production Docker Compose Configuration
+# 
+# ⚠️ 注意: 此文件主要用于参考和手动部署
+# 
+# CD 工作流 (SSM) 现在会自动生成此文件，不再依赖此文件
+# 如需修改生产配置，请更新 GitHub Actions 工作流中的配置:
+# HarbourX-Backend/.github/workflows/cd.yml (Deploy to EC2 via SSM 步骤)
+# 
+# For EC2 deployment with Amazon RDS PostgreSQL
+# All services use the same network for inter-service communication
+
+name: harbourx-prod
+
+services:
+  # Backend Service (Spring Boot)
+  backend:
+    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG:-latest}
+    container_name: harbourx-backend
+    restart: unless-stopped
+    
+    # Environment variables loaded from .env file
+    env_file:
+      - .env
+    
+    # Explicit environment variables (override .env if needed)
+    environment:
+      # Spring Profiles: Use 'prod,rds' for RDS
+      - SPRING_PROFILES_ACTIVE=prod,rds
+      
+      # Database Configuration (RDS)
+      # These should be set in .env file:
+      # - DB_RDS_ENDPOINT=${DB_RDS_ENDPOINT}
+      # - DB_RDS_PORT=${DB_RDS_PORT:-5432}
+      # - DB_RDS_DATABASE=${DB_RDS_DATABASE:-harbourx}
+      # - DB_RDS_USERNAME=${DB_RDS_USERNAME}
+      # - DB_RDS_PASSWORD=${DB_RDS_PASSWORD}
+      
+      # JWT Secret (set in .env)
+      # - JWT_SECRET=${JWT_SECRET}
+      
+      # AWS S3 Configuration (set in .env)
+      # - AWS_S3_ACCESS=${AWS_S3_ACCESS}
+      # - AWS_S3_SECRET=${AWS_S3_SECRET}
+      
+      # CORS Configuration
+      # - FRONTEND_ALLOWED_ORIGINS=${FRONTEND_ALLOWED_ORIGINS}
+      
+      # Java Options
+      - JAVA_OPTS=-Xmx1536m -Xms512m -XX:+UseG1GC
+    
+    ports:
+      - "8080:8080"
+    
+    # Network configuration - MUST be same network as frontend and ai-module
+    networks:
+      - harbourx-network
+    
+    # Health check
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    
+    # Graceful shutdown
+    init: true
+    stop_grace_period: 30s
+
+  # Frontend Service (React + Nginx)
+  # Note: Add this service when deploying frontend
+  frontend:
+    # Uncomment and configure when deploying frontend
+    # build:
+    #   context: ${PROJECT_ROOT:-..}/${FRONTEND_DIR:-HarbourX-Frontend}
+    #   dockerfile: ../${DOCKER_DIR:-harbourx}/dockerfiles/frontend/Dockerfile
+    # container_name: harbourx-frontend
+    # ports:
+    #   - "80:80"
+    # networks:
+    #   - harbourx-network
+    # depends_on:
+    #   - backend
+    # restart: unless-stopped
+
+  # AI Module Service (Node.js)
+  # Note: Add this service when deploying AI module
+  ai-module:
+    # Uncomment and configure when deploying AI module
+    # build:
+    #   context: ${PROJECT_ROOT:-..}/${AI_MODULE_DIR:-AI-Module}
+    #   dockerfile: ../${DOCKER_DIR:-harbourx}/dockerfiles/ai-module/Dockerfile
+    # container_name: harbourx-ai-module
+    # ports:
+    #   - "3000:3000"
+    # networks:
+    #   - harbourx-network
+    # depends_on:
+    #   - backend
+    # restart: unless-stopped
+
+# Network definition - shared by all services
+networks:
+  harbourx-network:
+    driver: bridge
+    name: harbourx-network
+

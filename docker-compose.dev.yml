@@ -166,4 +166,5 @@ volumes:
 networks:
   harbourx-network-dev:
     driver: bridge
+    name: harbourx-network-dev
 

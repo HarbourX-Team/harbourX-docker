@@ -1,117 +1,10 @@
-# HarbourX Docker 部署完整指南
+# HarbourX Docker 部署指南
+
+> **最后更新**: 2025-01-09  
+> **部署方式**: AWS Systems Manager (SSM) Run Command (生产环境)  
+> **本地开发**: Docker Compose
 
 HarbourX 系统的 Docker 化部署配置、CI/CD 流程和 AWS EC2 部署指南。
-
----
-
-## ⚠️ 部署前必需：登录信息配置
-
-**在开始部署之前，必须配置以下登录信息：**
-
-### 🔐 必需的登录信息
-
-#### 1. **GitHub 认证**（必需）
-
-部署脚本需要 GitHub 认证来拉取代码。请使用以下**三种方法之一**：
-
-**方法 1: 使用 GitHub CLI（推荐）**
-
-```bash
-# 安装 GitHub CLI（如果未安装）
-# macOS: brew install gh
-# Linux: 参考 https://cli.github.com/
-
-# 登录 GitHub
-gh auth login
-
-# 验证登录状态
-gh auth status
-```
-
-**方法 2: 设置环境变量**
-
-```bash
-# 生成 Personal Access Token
-# 1. 访问 https://github.com/settings/tokens
-# 2. 点击 "Generate new token (classic)"
-# 3. 选择权限: repo (完整仓库访问权限)
-# 4. 复制生成的 token
-
-# 设置环境变量
-export GITHUB_TOKEN='your_github_token_here'
-
-# 验证（可选）
-echo $GITHUB_TOKEN
-```
-
-**方法 3: 在 ~/.zshrc 或 ~/.bashrc 中永久设置**
-
-```bash
-# 添加到 ~/.zshrc 或 ~/.bashrc
-export GITHUB_TOKEN='your_github_token_here'
-
-# 重新加载配置
-source ~/.zshrc  # 或 source ~/.bashrc
-```
-
-#### 2. **SSH 密钥配置**（必需）
-
-部署到 EC2 需要 SSH 密钥：
-
-```bash
-# 设置 SSH 密钥路径
-export SSH_KEY=~/.ssh/harbourX-demo-key-pair.pem
-
-# 或使用脚本默认路径
-# 默认: ~/.ssh/harbourX-demo-key-pair.pem
-```
-
-#### 3. **EC2 连接信息**（必需）
-
-```bash
-# 设置 EC2 主机地址
-export EC2_HOST=13.54.207.94
-
-# 设置 EC2 用户（可选，默认: ec2-user）
-export EC2_USER=ec2-user
-```
-
-### ✅ 验证配置
-
-运行以下命令验证所有必需配置：
-
-```bash
-# 检查 GitHub 登录
-gh auth status || echo "⚠️  GitHub CLI 未登录"
-echo "GITHUB_TOKEN: ${GITHUB_TOKEN:+已设置}" || echo "⚠️  GITHUB_TOKEN 未设置"
-
-# 检查 SSH 密钥
-[ -f "${SSH_KEY:-~/.ssh/harbourX-demo-key-pair.pem}" ] && echo "✅ SSH 密钥存在" || echo "⚠️  SSH 密钥不存在"
-
-# 检查 EC2 配置
-echo "EC2_HOST: ${EC2_HOST:-未设置}"
-echo "EC2_USER: ${EC2_USER:-ec2-user (默认)}"
-```
-
-### 🚨 常见问题
-
-**Q: 为什么需要 GitHub 认证？**
-A: 部署脚本需要从 GitHub 拉取最新代码（Backend 和 Frontend），私有仓库或频繁拉取需要认证。
-
-**Q: 如何获取 GitHub Personal Access Token？**
-A:
-
-1. 访问 https://github.com/settings/tokens
-2. 点击 "Generate new token (classic)"
-3. 选择 `repo` 权限
-4. 复制并保存 token（只显示一次）
-
-**Q: 部署时提示 "GitHub 登录验证失败"？**
-A:
-
-- 检查 token 是否有效：`curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user`
-- 或运行 `gh auth login` 重新登录
-- 确保 token 有 `repo` 权限
 
 ---
 
@@ -121,17 +14,11 @@ A:
 - [📦 服务说明](#-服务说明)
 - [🌐 访问地址](#-访问地址)
 - [🔧 常用命令](#-常用命令)
-- [📝 完整命令参考](#-完整命令参考)
-- [🗄️ 数据库管理](#️-数据库管理)
-- [📊 数据迁移](#-数据迁移)
-- [🔍 健康检查](#-健康检查)
+- [🐳 Docker 配置说明](#-docker-配置说明)
+- [🔄 CI/CD 部署流程](#-cicd-部署流程)
+- [🚀 生产环境部署](#-生产环境部署)
 - [🐛 故障排查](#-故障排查)
-- [🔐 安全建议](#-安全建议)
-- [📝 开发环境](#-开发环境)
-- [🔄 更新服务](#-更新服务)
-- [🌐 AWS EC2 部署](#-aws-ec2-部署)
-- [🔄 CI/CD 工作流程](#-cicd-工作流程)
-- [🔐 GitHub CI/CD 配置](#-github-cicd-配置)
+- [📝 文件说明](#-文件说明)
 
 ---
 
@@ -146,99 +33,39 @@ A:
 
 ### 一键启动
 
-#### 方法 1：本地完整部署（推荐首次使用）
-
 ```bash
-# 进入 harbourX 目录
 cd harbourX
 
-# 本地完整部署（自动检查环境、构建并启动）
+# 本地完整部署（推荐首次使用）
 ./harbourx.sh deploy local          # 生产环境
-./harbourx.sh deploy local dev      # 开发环境
-```
+./harbourx.sh deploy local dev      # 开发环境（热重载）
 
-#### 方法 2：快速启动（已部署过）
-
-```bash
-# 使用统一管理脚本启动（生产环境）
-./harbourx.sh docker start
-
-# 或启动开发环境（带热重载）
-./harbourx.sh docker start:dev
+# 或快速启动（已部署过）
+./harbourx.sh docker start          # 生产环境
+./harbourx.sh docker start:dev      # 开发环境
 
 # 或直接使用 Docker Compose
-docker compose up -d
+docker compose up -d                 # 生产环境
+docker compose -f docker-compose.dev.yml up -d  # 开发环境
 ```
 
 ### 环境变量配置
 
-> ⚠️ **重要**：生产环境部署前，必须配置以下环境变量以确保安全性！
-
-#### 1. 创建 .env 文件（生产环境必需）
+> ⚠️ **重要**: 本地开发前，必须配置环境变量
 
 ```bash
-# 复制示例文件
-cp .env.example .env
+# 复制环境变量示例文件
+cp env.example .env
 
-# 编辑 .env 文件，设置所有必需的配置
+# 编辑 .env 文件，根据实际情况修改配置
+# 注意：.env 文件包含敏感信息，不要提交到 Git
 ```
 
-#### 2. 生产环境必需配置
-
-**必须设置以下环境变量（生产环境）：**
-
-```bash
-# 项目路径配置（如果项目结构不同）
-PROJECT_ROOT=..                    # 项目根目录（相对于 harbourX 文件夹）
-BACKEND_DIR=HarbourX-Backend      # Backend 目录名
-FRONTEND_DIR=HarbourX-Frontend    # Frontend 目录名
-AI_MODULE_DIR=AI-Module           # AI-Module 目录名
-DOCKER_DIR=harbourX              # Docker 配置目录名
-
-# 数据库配置（生产环境必须更改默认密码！）
-POSTGRES_DB=harbourx
-POSTGRES_USER=harbourx
-POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD_IN_PRODUCTION  # ⚠️ 必须更改！
-DB_PORT=5432
-
-# JWT Secret（生产环境必须设置！）
-# 生成安全的 JWT Secret（至少 256 位）：
-# openssl rand -base64 32
-JWT_SECRET=CHANGE_THIS_JWT_SECRET_IN_PRODUCTION  # ⚠️ 必须更改！
-
-# Frontend Allowed Origins（根据实际情况调整）
-FRONTEND_ALLOWED_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend:80
-```
-
-#### 3. AI-Module 环境变量
-
-确保 `${PROJECT_ROOT}/${AI_MODULE_DIR}/.env` 文件（默认 `../AI-Module/.env`）包含必要的 API keys：
-
-```bash
-GOOGLE_AI_API_KEY=your_google_ai_api_key
-OPENAI_API_KEY=your_openai_api_key
-PORT=3000
-HOST=0.0.0.0
-```
-
-#### 4. 生成安全的 JWT Secret
-
-```bash
-# 方法 1：使用 OpenSSL（推荐）
-openssl rand -base64 32
-
-# 方法 2：使用 /dev/urandom
-head -c 32 /dev/urandom | base64
-
-# 将生成的字符串设置为 JWT_SECRET 环境变量
-```
-
-> 💡 **提示**：JWT Secret 应该：
->
-> - 至少 256 位（32 字节）
-> - 使用随机生成的字符串
-> - 不要使用可预测的值
-> - 在生产环境中定期轮换
+**环境变量说明**：
+- 参考 `env.example` 文件获取完整的环境变量列表
+- 本地开发使用 `docker-compose.yml` 时，需要配置 PostgreSQL、JWT Secret 等
+- AI-Module 需要单独的 `.env` 文件：`../AI-Module/.env`
+- **生产环境部署**通过 GitHub Actions CI/CD 自动处理，配置存储在 EC2 实例的 `/opt/harbourx/.env` 文件中
 
 ---
 
@@ -246,24 +73,26 @@ head -c 32 /dev/urandom | base64
 
 | 服务       | 容器名               | 端口 | 说明                                        |
 | ---------- | -------------------- | ---- | ------------------------------------------- |
-| PostgreSQL | `harbourx-postgres`  | 5433 | 数据库服务（外部端口 5433，避免与本地冲突） |
+| PostgreSQL | `harbourx-postgres`  | 5433 | 数据库服务（本地开发）                      |
 | Backend    | `harbourx-backend`   | 8080 | Spring Boot API 服务                        |
 | AI-Module  | `harbourx-ai-module` | 3000 | AI 分析服务                                 |
 | Frontend   | `harbourx-frontend`  | 80   | React + Nginx 前端服务                      |
+
+**注意**: 生产环境使用 Amazon RDS，不包含 PostgreSQL 容器。
 
 ### 服务依赖关系
 
 ```
 Frontend → Backend (API calls)
 Frontend → AI-Module (AI analysis)
-Backend → PostgreSQL (Database)
+Backend → PostgreSQL/RDS (Database)
 ```
 
 ---
 
 ## 🌐 访问地址
 
-### 生产环境
+### 本地开发环境
 
 | 服务             | 地址                                  | 说明                      |
 | ---------------- | ------------------------------------- | ------------------------- |
@@ -274,15 +103,7 @@ Backend → PostgreSQL (Database)
 | **AI 健康检查**  | http://localhost:3000/health          | 健康检查                  |
 | **PostgreSQL**   | localhost:5433                        | 数据库（容器内使用 5432） |
 
-### 开发环境
-
-使用 `docker-compose.dev.yml` 启动开发环境（带热重载）：
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-```
-
-开发环境访问地址：
+### 开发环境（热重载）
 
 - **前端**: http://localhost:3001
 - **后端**: http://localhost:8080
@@ -292,1270 +113,756 @@ docker compose -f docker-compose.dev.yml up -d
 
 ## 🔧 常用命令
 
-### 使用统一管理脚本（推荐）
-
-`harbourx.sh` 是一个统一的管理脚本，整合了所有 Docker 和部署操作。
-
-#### Docker 操作
-
-```bash
-# 启动所有服务（生产环境）
-./harbourx.sh docker start
-
-# 启动开发环境（带热重载）
-./harbourx.sh docker start:dev
-
-# 停止所有服务
-./harbourx.sh docker stop
-
-# 重启所有服务
-./harbourx.sh docker restart
-
-# 查看服务状态
-./harbourx.sh docker status
-
-# 查看日志（所有服务）
-./harbourx.sh docker logs
-
-# 查看特定服务日志
-./harbourx.sh docker logs backend
-
-# 清理所有 Docker 资源（镜像、容器、卷）
-./harbourx.sh docker clean
-```
-
-#### 部署操作
-
-```bash
-# 本地完整部署（推荐首次使用）
-./harbourx.sh deploy local          # 生产环境，重新构建
-./harbourx.sh deploy local dev       # 开发环境，重新构建
-./harbourx.sh deploy local prod false  # 生产环境，不重新构建
-
-# 部署到 EC2 实例
-./harbourx.sh deploy deploy
-
-# SSH 连接到 EC2
-./harbourx.sh deploy ssh
-
-# 获取 EC2 实例 IP
-./harbourx.sh deploy ip
-
-# 在 EC2 上设置 Git 仓库
-./harbourx.sh deploy setup-git
-
-# 在云端创建 Broker
-./harbourx.sh deploy create-broker
-```
-
-> 💡 **本地部署** (`deploy local`) 会自动：
->
-> - 检查 Docker 环境
-> - 验证项目结构
-> - 检查环境变量文件
-> - 停止现有服务
-> - 构建并启动所有服务
-> - 执行健康检查
-> - 显示访问地址和状态
-
-#### 配置操作
-
-```bash
-# 查看当前配置
-./harbourx.sh config env
-
-# 查看完整帮助
-./harbourx.sh help
-```
-
-#### 环境变量
-
-可以通过环境变量自定义配置：
-
-```bash
-export EC2_HOST=13.54.207.94
-export EC2_USER=ec2-user
-export SSH_KEY=~/.ssh/harbourX-demo-key-pair.pem
-export PROJECT_ROOT=..
-export BACKEND_DIR=HarbourX-Backend
-export FRONTEND_DIR=HarbourX-Frontend
-export AI_MODULE_DIR=AI-Module
-```
-
-### 使用 Docker Compose
-
-```bash
-# 启动所有服务（后台运行）
-docker compose up -d
-
-# 停止所有服务
-docker compose down
-
-# 停止并删除数据卷（⚠️ 会删除数据库）
-docker compose down -v
-
-# 重新构建并启动
-docker compose up -d --build
-
-# 查看服务状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f
-
-# 查看特定服务日志
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f ai-module
-docker compose logs -f postgres
-```
-
----
-
-## 📝 完整命令参考
-
-> 💡 **提示**：所有 Docker 命令都需要在 `harbourX` 目录下执行。
-
-### 启动服务
-
-#### 启动所有服务（后台运行）
-
-```bash
-docker compose up -d
-```
-
-#### 启动所有服务（前台运行，查看日志）
-
-```bash
-docker compose up
-```
-
-#### 启动并重新构建镜像
-
-```bash
-docker compose up -d --build
-```
-
-#### 启动特定服务
-
-```bash
-docker compose up -d postgres    # 只启动数据库
-docker compose up -d backend     # 只启动后端
-docker compose up -d ai-module   # 只启动 AI 模块
-docker compose up -d frontend    # 只启动前端
-```
-
-### 停止服务
-
-#### 停止所有服务（保留容器和数据）
-
-```bash
-docker compose stop
-```
-
-#### 停止并删除容器（保留数据卷）
-
-```bash
-docker compose down
-```
-
-#### 停止并删除容器和数据卷（⚠️ 会删除数据库数据）
-
-```bash
-docker compose down -v
-```
-
-#### 停止特定服务
-
-```bash
-docker compose stop backend
-docker compose stop frontend
-docker compose stop ai-module
-docker compose stop postgres
-```
-
-### 重启服务
-
-#### 重启所有服务
-
-```bash
-docker compose restart
-```
-
-#### 重启特定服务
-
-```bash
-docker compose restart backend
-docker compose restart frontend
-docker compose restart ai-module
-docker compose restart postgres
-```
-
-### 查看状态
-
-#### 查看所有服务状态
-
-```bash
-docker compose ps
-```
-
-#### 查看服务详细信息
-
-```bash
-docker compose ps -a
-```
-
-### 查看日志
-
-#### 查看所有服务日志（实时）
-
-```bash
-docker compose logs -f
-```
-
-#### 查看特定服务日志
-
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f ai-module
-docker compose logs -f postgres
-```
-
-#### 查看最近 100 行日志
-
-```bash
-docker compose logs --tail=100
-```
-
-### 其他常用命令
-
-#### 进入容器内部
-
-```bash
-# 进入后端容器
-docker compose exec backend sh
-
-# 进入数据库容器
-docker compose exec postgres psql -U harbourx -d harbourx
-
-# 进入前端容器
-docker compose exec frontend sh
-
-# 进入 AI 模块容器
-docker compose exec ai-module sh
-```
-
-#### 查看容器资源使用情况
-
-```bash
-docker stats
-```
-
-#### 清理未使用的资源
-
-```bash
-# 清理未使用的镜像、容器、网络
-docker system prune
-
-# 清理所有未使用的资源（包括数据卷，⚠️ 谨慎使用）
-docker system prune -a --volumes
-```
-
-#### 查看网络
-
-```bash
-docker network ls
-docker network inspect harbourx_harbourx-network
-```
-
-#### 查看数据卷
-
-```bash
-docker volume ls
-docker volume inspect harbourx_postgres_data
-```
-
-### 快速操作流程
-
-#### 完整启动流程
+### 使用 harbourx.sh 脚本（推荐）
 
 ```bash
 cd harbourX
-./harbourx.sh docker start
-# 或
-docker compose up -d
-docker compose ps
-docker compose logs -f
+
+# Docker 操作（本地开发）
+./harbourx.sh docker start          # 启动所有服务（生产环境）
+./harbourx.sh docker start:dev      # 启动开发环境（热重载）
+./harbourx.sh docker stop           # 停止所有服务
+./harbourx.sh docker restart        # 重启所有服务
+./harbourx.sh docker logs backend   # 查看后端日志
+./harbourx.sh docker status         # 查看服务状态
+./harbourx.sh docker clean          # 清理 Docker 资源（需确认）
+
+# 本地部署操作
+./harbourx.sh deploy local          # 本地完整部署
+./harbourx.sh deploy local dev      # 本地开发环境部署
+
+# 生产环境部署（手动方式，独立于 CI/CD）
+./harbourx.sh deploy backend        # 手动部署后端到 EC2
+./harbourx.sh deploy frontend       # 手动部署前端到 EC2
+# 或使用 CI/CD（推荐）:
+# Backend: Push 到 main 分支，触发 .github/workflows/cd.yml
+# Frontend: Push 到 main 分支，触发 .github/workflows/CD.yml
+
+# 调试工具
+./harbourx.sh deploy ssh            # SSH 连接到 EC2 实例
+./harbourx.sh deploy ip             # 获取 EC2 实例 IP 地址
+
+# 帮助信息
+./harbourx.sh help                  # 查看完整帮助
+./harbourx.sh config env            # 查看配置
 ```
 
-#### 完整停止流程
+### 直接使用 Docker Compose
 
 ```bash
 cd harbourX
-./harbourx.sh docker stop
-# 或
-docker compose down
-```
 
-#### 重新部署流程
+# 生产环境
+docker compose up -d                 # 启动所有服务
+docker compose down                  # 停止所有服务
+docker compose logs -f backend       # 查看后端日志
+docker compose ps                    # 查看服务状态
 
-```bash
-cd harbourX
-./harbourx.sh docker stop
-docker compose up -d --build
-./harbourx.sh docker logs
+# 开发环境（热重载）
+docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml logs -f
+docker compose -f docker-compose.dev.yml down
 ```
 
 ---
 
-## 🗄️ 数据库管理
+## 🐳 Docker 配置说明
 
-### 连接数据库
+### Docker Compose 文件
 
-```bash
-# 连接数据库（注意端口是 5433）
-docker exec -it harbourx-postgres psql -U harbourx -d harbourx
+#### 1. `docker-compose.yml` - 生产环境配置 ✅
 
-# 或者从外部连接（端口 5433）
-psql -h localhost -p 5433 -U harbourx -d harbourx
+**用途**: 本地完整环境（包含所有服务）
+
+**包含服务**:
+- `postgres` - PostgreSQL 数据库
+- `backend` - Spring Boot 后端
+- `ai-module` - AI 分析模块
+- `frontend` - React 前端 (Nginx)
+
+**使用场景**:
+- 本地完整环境测试
+- 生产环境模拟
+- `./harbourx.sh docker start`
+
+**网络配置**:
+- 网络名: `harbourx-network` (外部可见)
+- 所有容器在同一网络中，可通过容器名访问
+
+#### 2. `docker-compose.dev.yml` - 开发环境配置 ✅
+
+**用途**: 本地开发环境（热重载）
+
+**特点**:
+- 使用 volumes 挂载源代码
+- 支持代码热重载
+- 快速重启和调试
+
+**使用场景**:
+- 本地开发调试
+- `./harbourx.sh docker start:dev`
+
+**网络配置**:
+- 网络名: `harbourx-network-dev` (与生产环境隔离)
+
+#### 3. `docker-compose.prod.yml` - EC2 生产配置 ⚠️
+
+**用途**: EC2 生产环境配置模板
+
+**注意**: 
+- ⚠️ **CD 工作流会自动生成此文件**，本地文件主要用于参考
+- 实际部署时由 GitHub Actions 工作流自动生成
+- 如需修改生产配置，请更新 `HarbourX-Backend/.github/workflows/cd.yml`
+
+**包含服务**:
+- `backend` - Spring Boot 后端（连接 RDS）
+- 不包含 `postgres`（使用 Amazon RDS）
+
+### Dockerfile 文件
+
+#### Backend Dockerfile
+- **位置**: `dockerfiles/backend/Dockerfile`
+- **用途**: 构建后端 Spring Boot 镜像
+- **使用**: GitHub Actions CD 工作流 + 本地构建
+
+#### Frontend Dockerfile
+- **位置**: `dockerfiles/frontend/Dockerfile`
+- **用途**: 构建前端 React 镜像（生产环境）
+- **特点**: 多阶段构建，包含 Nginx 配置
+- **nginx.conf**: 使用 `HarbourX-Frontend/app/src/infrastructure/docker/nginx.conf`
+
+#### Frontend Dev Dockerfile
+- **位置**: `dockerfiles/frontend/Dockerfile.dev`
+- **用途**: 构建前端开发镜像（热重载）
+- **使用**: `docker-compose.dev.yml`
+
+#### AI Module Dockerfile
+- **位置**: `dockerfiles/ai-module/Dockerfile`
+- **用途**: 构建 AI 分析模块镜像
+- **使用**: `docker-compose.yml`
+
+### 网络配置统一化
+
+**问题**: 不同 docker-compose 文件创建的容器在不同网络中，无法通信
+
+**解决方案**: 在所有 docker-compose 文件中明确指定网络名
+
+```yaml
+networks:
+  harbourx-network:
+    driver: bridge
+    name: harbourx-network  # ✅ 明确指定网络名
 ```
 
-### 备份和恢复
+**效果**:
+- ✅ 所有容器在同一网络中
+- ✅ 容器可以通过容器名互相访问
+- ✅ 前端可以通过 `harbourx-backend` 访问后端
 
-```bash
-# 备份数据库
-docker exec harbourx-postgres pg_dump -U harbourx harbourx > backup.sql
+### Nginx 配置
 
-# 恢复数据库
-docker exec -i harbourx-postgres psql -U harbourx harbourx < backup.sql
-```
+**实际使用**: `HarbourX-Frontend/app/src/infrastructure/docker/nginx.conf`
 
-### 数据持久化
+**关键配置**:
+- 使用容器名（而不是服务名）进行代理
+- 延迟 DNS 解析（使用变量）
+- 显式传递 Authorization header
+- CORS 配置
 
-数据卷：
-
-- `postgres_data`: PostgreSQL 数据库数据
-- `ai_module_data`: AI-Module 上传的文件和生成的数据
+**代理规则**:
+- `/api/` → `harbourx-backend:8080` (后端 API)
+- `/api/ai/` → `harbourx-ai-module:3000` (AI 模块)
 
 ---
 
-## 📊 数据迁移
+## 🔄 CI/CD 部署流程
 
-HarbourX 系统提供了完整的数据迁移工具，用于从老系统（HaiMoney）迁移数据到新系统。
+### ⚠️ 重要：生产环境部署方式
 
-### 快速开始
+**Backend 和 Frontend 已配置 CI/CD，推荐使用自动部署。同时提供独立的手动部署命令作为备用方案。**
 
-使用统一入口脚本：
+### 部署架构
 
-```bash
-cd migrationScripts
-
-# 本地环境迁移
-./migrate.sh local
-
-# 生产环境迁移
-export LOGIN_PASSWORD="your-password"
-./migrate.sh prod
+```
+本地开发 (docker-compose)
+    ↓
+开发者 Push 代码到 main 分支
+    ↓
+GitHub Actions 自动触发 CI/CD
+    ↓
+构建 Docker 镜像 → 推送到 Amazon ECR
+    ↓
+AWS SSM (Backend) / SSH (Frontend) 自动部署
+    ↓
+EC2 Instance (生产环境)
+    ↓
+Amazon RDS (数据库)
 ```
 
-### 迁移工具说明
+### 部署方式对比
 
-迁移脚本位于 `migrationScripts/` 目录，包含：
+#### 方式 1: GitHub Actions CI/CD（推荐，自动部署）
 
-- **统一入口**: `migrate.sh` - 支持本地和生产环境迁移
-- **修复脚本**: `fix-local-created-at.sh`, `fix-prod-created-at-via-ssh.sh` - 修复时间戳问题
-- **诊断脚本**: `diagnose-prod-missing-aggregator.sh` - 诊断错误
-- **验证脚本**: `verify-created-at.sh`, `verify-relationships.sh` - 验证数据
+**Backend (HarbourX-Backend)**:
+- **工作流**: `.github/workflows/cd.yml`
+- **触发**: Push 到 `main` 分支（修改 `src/**`, `pom.xml`, `Dockerfile` 等）
+- **部署方式**: AWS Systems Manager (SSM) Run Command
+- **认证**: IAM OIDC（无需 SSH 密钥）
+- **优势**: 自动化、可追溯、符合最佳实践
 
-### 重要提示
+**Frontend (HarbourX-Frontend)**:
+- **工作流**: `.github/workflows/CD.yml`
+- **触发**: Push 到 `main` 分支（修改 `app/**` 等）
+- **部署方式**: SSH 部署到 EC2
+- **认证**: GitHub Secrets (EC2_SSH_KEY)
+- **优势**: 自动化、版本控制、一键部署
 
-**created_at 时间戳修复**：
+#### 方式 2: 手动独立部署（备用方案）
 
-- 迁移完成后会自动修复 `created_at` 时间戳
-- 如果上传 RCTI 文件后出现 `MISSING_BROKER_GROUP` 或 `MISSING_AGGREGATOR` 错误，需要运行修复脚本：
-  - 本地环境：`./fix-local-created-at.sh`
-  - 生产环境：`./fix-prod-created-at-via-ssh.sh`
+**后端部署命令**: `./harbourx.sh deploy backend`
 
-详细说明请参考：**[migrationScripts/README.md](migrationScripts/README.md)**
+**前端部署命令**: `./harbourx.sh deploy frontend`
+
+**特点**:
+- ✅ **独立于 CI/CD**，作为备用方案，不会与 CI/CD 冲突
+- ✅ **独立部署**：可以单独部署 Backend 或 Frontend
+- ✅ **灵活性**：适用于紧急修复、调试、CI/CD 不可用
+- ✅ **与 CI/CD 并行**：两种方式可以并存，根据情况选择
+
+**后端部署（deploy backend）**:
+- 部署 Backend 服务到 EC2
+- 会重置数据库（删除并重新创建）
+- 需要 GitHub 认证和 SSH 密钥
+
+**前端部署（deploy frontend）**:
+- 部署 Frontend 服务到 EC2
+- 不会影响 Backend 服务
+- 需要 GitHub 认证和 SSH 密钥
+
+**使用场景**:
+- CI/CD 工作流不可用时（GitHub Actions 故障、网络问题等）
+- 需要紧急修复或快速部署单个服务（不等待 CI/CD 流程）
+- 调试和测试环境配置（快速验证更改）
+- 开发环境快速验证（本地测试后的快速部署）
+- 只需要更新后端或前端其中一个服务时
+
+**前置要求**:
+- GitHub 认证（GITHUB_TOKEN 环境变量或 `gh auth login`）
+- SSH 密钥（用于连接 EC2）
+- EC2 访问权限
+
+**已废弃的命令**:
+- ⚠️ `./harbourx.sh deploy deploy` - 已废弃，请使用 `deploy backend` 和 `deploy frontend`
+
+### 部署方式演进
+
+**之前 (SSH 方式)**:
+- ❌ 使用 SSH 密钥连接到 EC2
+- ❌ 需要手动管理 SSH 密钥和 GitHub Secrets
+- ❌ 安全性较低，不符合 AWS 最佳实践
+
+**现在 (SSM 方式)**:
+- ✅ 使用 AWS Systems Manager (SSM) Run Command
+- ✅ 通过 IAM OIDC 认证（无需 SSH 密钥）
+- ✅ 符合 AWS 安全最佳实践
+- ✅ 更可靠、更安全
+
+### Backend CD 工作流
+
+#### 触发条件
+
+**自动触发**:
+- Push 到 `main` 分支
+- 修改路径包含: `src/**`, `pom.xml`, `Dockerfile`, `.github/workflows/cd.yml`
+
+**手动触发**:
+- 在 GitHub Actions 页面点击 "Run workflow"
+- 可指定自定义镜像标签
+
+#### 执行流程
+
+```
+1. 代码 Push → 触发 CD 工作流
+   ↓
+2. 构建 Docker 镜像 (tagged + latest)
+   ↓
+3. 推送到 Amazon ECR
+   ↓
+4. IAM OIDC 认证 → GitHub Actions 认证到 AWS ✅
+   ↓
+5. 查找 EC2 实例 ID (通过 Tag 或 Secret)
+   ↓
+6. 通过 SSM SendCommand 发送部署脚本 ✅
+   ↓
+7. EC2 执行远程脚本:
+   - ECR 登录
+   - 拉取最新镜像
+   - 数据库迁移 (带锁，防止并发)
+   - 自动生成 docker-compose.prod.yml ✅
+   - 更新 .env 文件 (ECR_REGISTRY, ECR_REPOSITORY, IMAGE_TAG)
+   - 自动安装 docker-compose (如果不存在) ✅
+   - 停止旧容器
+   - 启动新容器 (docker-compose 或 docker run 回退)
+   - 健康检查 (最多 24 次，每次间隔 5 秒)
+   ↓
+8. 等待 SSM 命令完成 → 获取执行结果
+   ↓
+9. 验证部署成功
+```
+
+#### 关键特性
+
+**1. 自动生成 docker-compose.prod.yml**
+- ✅ 配置在 GitHub Actions 工作流中（版本控制）
+- ✅ 每次部署自动生成最新配置
+- ✅ 无需手动在 EC2 上创建或更新文件
+
+**2. 自动安装 docker-compose**
+- ✅ 如果 EC2 上没有 docker-compose，自动下载安装 v2.27.0
+- ✅ 支持 curl 和 wget
+- ✅ 安装后验证可用性
+
+**3. 智能回退机制**
+- ✅ 如果 docker-compose 失败，自动回退到 docker run
+- ✅ 使用相同的配置参数
+- ✅ 确保部署成功
+
+**4. 迁移锁机制**
+- ✅ 使用 flock 防止并发迁移
+- ✅ 如果另一个迁移正在运行，会失败并提示
+
+### IAM 配置
+
+#### GitHub Actions IAM Role
+
+**角色名**: `github-actions-harbourx-backend-cd`
+
+**权限**:
+- `ssm:SendCommand` - 发送命令到 EC2
+- `ssm:GetCommandInvocation` - 获取命令执行结果
+- `ssm:ListCommandInvocations` - 列出命令执行
+- `ec2:DescribeInstances` - 查找 EC2 实例
+- `ecr:*` - ECR 推送和拉取权限
+- `logs:*` - CloudWatch 日志权限
+
+#### EC2 Instance Profile
+
+**权限**:
+- `ecr:GetAuthorizationToken` - ECR 登录
+- `ecr:BatchGetImage` - 拉取镜像
+- `ecr:GetDownloadUrlForLayer` - 下载镜像层
 
 ---
 
-## 🔍 健康检查
+## 🚀 生产环境部署
 
-所有服务都配置了健康检查：
+### EC2 环境要求
+
+#### 必需配置
+
+1. **IAM Instance Profile**
+   - 附加到 EC2 实例
+   - 包含 ECR 拉取权限
+
+2. **SSM Agent**
+   - 已安装并运行
+   - 允许通过 SSM 执行命令
+
+3. **.env 文件** (`/opt/harbourx/.env`)
+   ```bash
+   # 数据库配置 (RDS)
+   DB_IP=your-rds-endpoint.rds.amazonaws.com
+   DB_PORT=5432
+   DB_NAME=harbourx
+   DB_USER=your_db_user
+   DB_PASS=your_db_password
+   
+   # 应用配置
+   SPRING_PROFILES_ACTIVE=prod,rds
+   JWT_SECRET=your_jwt_secret
+   
+   # ECR 配置 (部署时自动更新)
+   ECR_REGISTRY=869894983085.dkr.ecr.ap-southeast-2.amazonaws.com
+   ECR_REPOSITORY=harbourx-backend
+   IMAGE_TAG=latest
+   ```
+
+4. **目录结构**
+   ```
+   /opt/harbourx/
+   ├── .env                    # 必需，手动创建（包含敏感信息）
+   └── docker-compose.prod.yml # 自动生成（CD 工作流）
+   ```
+
+### 首次部署
+
+#### 1. 创建 .env 文件（手动）
 
 ```bash
-# 检查所有服务健康状态
-docker compose ps
+# 通过 SSM Session Manager 或保留的 SSH 访问 EC2
+cd /opt/harbourx
 
-# 手动检查
-curl http://localhost:8080/actuator/health  # Backend
-curl http://localhost:3000/health             # AI-Module
-curl http://localhost                         # Frontend
+# 创建 .env 文件（包含所有敏感信息）
+cat > .env << 'EOF'
+DB_IP=your-rds-endpoint.rds.amazonaws.com
+DB_PORT=5432
+DB_NAME=harbourx
+DB_USER=your_db_user
+DB_PASS=your_db_password
+JWT_SECRET=your_jwt_secret
+SPRING_PROFILES_ACTIVE=prod,rds
+EOF
 ```
+
+#### 2. 执行 CD 工作流
+
+- Push 代码到 `main` 分支，或
+- 在 GitHub Actions 页面手动触发 "Continuous Deployment" 工作流
+
+#### 3. 验证部署
+
+```bash
+# 通过 SSM Session Manager 访问 EC2
+cd /opt/harbourx
+
+# 检查容器状态
+docker ps | grep harbourx-backend
+
+# 检查健康状态
+curl http://localhost:8080/actuator/health
+
+# 查看容器日志
+docker logs harbourx-backend --tail=50 -f
+```
+
+### 后续部署
+
+- ✅ **完全自动化**: 只需 Push 代码到 `main` 分支
+- ✅ **CD 工作流自动执行**:
+  - 构建镜像 → 推送到 ECR
+  - 通过 SSM 自动部署到 EC2
+  - 自动生成 docker-compose.prod.yml
+  - 自动安装 docker-compose（如果不存在）
+  - 执行数据库迁移
+  - 更新容器
+  - 健康检查
 
 ---
 
 ## 🐛 故障排查
 
-### 端口被占用
+### 常见问题
 
+#### 1. SSM 命令执行失败
+
+**症状**: `Command failed with status: Failed`
+
+**排查步骤**:
 ```bash
-# 检查端口
-lsof -i :80
-lsof -i :8080
-lsof -i :3000
-lsof -i :5433
+# 查看 GitHub Actions 日志中的错误信息
+# 在 "Deploy to EC2 via SSM" 步骤中查看 StandardErrorContent
 
-# 停止占用端口的进程
-kill -9 <PID>
+# 查看 CloudWatch 日志
+aws logs tail /aws/ssm/harbourx-backend-deploy --follow
+
+# 检查 EC2 实例的 SSM Agent 状态
+aws ssm describe-instance-information \
+  --instance-information-filter-list key=InstanceIds,valueSet=i-xxx
 ```
 
-### 服务无法启动
+**可能原因**:
+- EC2 实例未安装/启用 SSM Agent
+- IAM Instance Profile 权限不足
+- 网络连接问题
+- 远程脚本执行错误
 
-1. 检查端口是否被占用（见上方）
-2. 查看服务日志：
+#### 2. docker-compose 命令失败
 
+**症状**: `unknown shorthand flag: 'f' in -f`
+
+**解决方案**:
+- ✅ **已实现**: 自动安装 docker-compose（如果不存在）
+- ✅ **已实现**: 回退到 docker run（如果 docker-compose 失败）
+
+**手动修复** (如果需要):
 ```bash
-docker compose logs [service-name]
+# 通过 SSM Session Manager 访问 EC2
+cd /opt/harbourx
+
+# 手动安装 docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" \
+  -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+docker-compose --version
 ```
 
-3. 检查环境变量：
+#### 3. 健康检查失败
 
+**症状**: `Health check timeout`
+
+**排查步骤**:
 ```bash
-docker compose config
+# 检查容器状态
+docker ps -a | grep harbourx-backend
+
+# 检查容器日志
+docker logs harbourx-backend --tail=200
+
+# 手动测试健康检查
+curl http://localhost:8080/actuator/health
+
+# 检查数据库连接
+docker exec harbourx-backend env | grep DB_
 ```
 
-### 数据库连接问题
+**可能原因**:
+- 应用启动失败
+- 数据库连接问题
+- 端口冲突
+- 内存不足
+- 环境变量配置错误
 
-1. 确保 PostgreSQL 服务已启动并健康：
+#### 4. IAM OIDC 认证失败
 
+**症状**: `Not authorized to perform sts:AssumeRoleWithWebIdentity`
+
+**排查步骤**:
+1. 检查 IAM Role Trust Policy 是否正确配置
+2. 检查 OIDC Provider 是否存在
+3. 验证 GitHub 仓库路径是否匹配
+
+**修复**: 参考 `HarbourX-Backend/scripts/fix-oidc-trust-policy.sh`
+
+#### 5. ECR 拉取失败
+
+**症状**: `Error response from daemon: pull access denied`
+
+**排查步骤**:
+- 检查 EC2 Instance Profile 是否有 ECR 权限
+- 检查 ECR 镜像是否存在
+- 检查网络连接（EC2 能否访问 ECR）
+
+#### 6. 数据库迁移失败
+
+**症状**: `Migration failed` 或 `Another migration is running`
+
+**排查步骤**:
 ```bash
-docker compose ps postgres
+# 检查迁移锁文件
+ls -la /tmp/harbourx_migrate.lock
+
+# 如果锁文件存在，可以手动删除（谨慎操作）
+rm /tmp/harbourx_migrate.lock
+
+# 检查数据库连接
+docker exec harbourx-backend env | grep DB_
 ```
 
-2. 检查数据库连接：
+### 日志位置
 
+**GitHub Actions 日志**:
+- 在 GitHub Actions 页面查看完整日志
+- 包括构建、推送、部署各个阶段的输出
+
+**CloudWatch 日志**:
+- Log Group: `/aws/ssm/harbourx-backend-deploy`
+- 包含 SSM 命令的完整输出和错误信息
+
+**EC2 容器日志**:
 ```bash
-docker exec -it harbourx-postgres psql -U harbourx -d harbourx -c "SELECT 1;"
+# 通过 SSM Session Manager 访问 EC2
+docker logs harbourx-backend --tail=200 -f
 ```
 
-### Frontend 无法连接 Backend
-
-1. 检查 `vite.config.ts` 中的代理配置
-2. 确保 Backend 服务正常运行
-3. 检查 CORS 配置
-
-### AI-Module 无法工作
-
-1. 检查 `.env` 文件中的 API keys
-2. 查看 AI-Module 日志：
+### 快速验证命令
 
 ```bash
-docker compose logs ai-module
+# 在 EC2 上执行（通过 SSM Session Manager）
+cd /opt/harbourx
+
+echo "=== 文件检查 ==="
+[ -f "docker-compose.prod.yml" ] && echo "✅ docker-compose.prod.yml 存在" || echo "❌ 不存在"
+[ -f ".env" ] && echo "✅ .env 文件存在" || echo "❌ 不存在"
+
+echo "=== docker-compose 检查 ==="
+command -v docker-compose >/dev/null 2>&1 && echo "✅ docker-compose 已安装" || echo "❌ 未安装"
+
+echo "=== 容器检查 ==="
+docker ps | grep harbourx-backend && echo "✅ 容器运行中" || echo "❌ 容器未运行"
+
+echo "=== 健康检查 ==="
+HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health 2>/dev/null || echo "000")
+if [ "$HEALTH" = "200" ] || [ "$HEALTH" = "401" ] || [ "$HEALTH" = "403" ]; then
+  echo "✅ 健康检查通过 (HTTP $HEALTH)"
+else
+  echo "❌ 健康检查失败 (HTTP $HEALTH)"
+fi
 ```
 
 ---
 
-## 🔐 安全建议
+## 📝 文件说明
 
-### ⚠️ 生产环境部署前检查清单
+### ✅ 必需文件
 
-**在部署到生产环境之前，必须完成以下配置：**
+#### Docker Compose 配置文件
 
-1. **✅ 创建 .env 文件**
+**`docker-compose.yml`** ✅
+- **用途**: 本地开发/生产环境测试
+- **包含**: postgres, backend, ai-module, frontend
+- **使用**: `./harbourx.sh docker start` 或 `docker compose up -d`
 
-   ```bash
-   cp .env.example .env
-   ```
+**`docker-compose.dev.yml`** ✅
+- **用途**: 本地开发环境（热重载）
+- **包含**: 所有服务，使用 volumes 挂载源代码
+- **使用**: `./harbourx.sh docker start:dev`
 
-2. **✅ 生成并设置安全的 JWT Secret**
+**`docker-compose.prod.yml`** ⚠️ **可选（参考）**
+- **用途**: EC2 生产环境配置模板
+- **注意**: CD 工作流会自动生成，本地文件主要用于参考
+- **使用**: 手动部署或配置参考
 
-   ```bash
-   # 生成安全的 JWT Secret（至少 256 位）
-   openssl rand -base64 32
+#### Dockerfile 文件
 
-   # 将生成的字符串添加到 .env 文件
-   JWT_SECRET=<生成的随机字符串>
-   ```
+**`dockerfiles/backend/Dockerfile`** ✅
+- **用途**: 构建后端镜像
+- **使用**: GitHub Actions CD + 本地构建
 
-   > ⚠️ **重要**：不要使用默认的 JWT Secret！必须生成新的随机字符串。
+**`dockerfiles/frontend/Dockerfile`** ✅
+- **用途**: 构建前端生产镜像
+- **nginx.conf**: 使用 `HarbourX-Frontend/app/src/infrastructure/docker/nginx.conf`
+- **使用**: `docker-compose.yml`
 
-3. **✅ 更改数据库密码**
+**`dockerfiles/frontend/Dockerfile.dev`** ✅
+- **用途**: 构建前端开发镜像（热重载）
+- **使用**: `docker-compose.dev.yml`
 
-   ```bash
-   # 在 .env 文件中设置强密码
-   POSTGRES_PASSWORD=<强密码>
-   ```
+**`dockerfiles/ai-module/Dockerfile`** ✅
+- **用途**: 构建 AI 模块镜像
+- **使用**: `docker-compose.yml`
 
-   > ⚠️ **重要**：不要使用默认密码 `harbourx_password`！
+#### 脚本文件
 
-4. **✅ 配置所有必需的环境变量**
+**`harbourx.sh`** ✅
+- **用途**: 本地 Docker 和部署管理
+- **功能**: 
+  - Docker 服务管理（启动、停止、日志）
+  - 本地部署
+  - EC2 部署（SSH 方式，已废弃，建议使用 CD 工作流）
 
-   - `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`
-   - `JWT_SECRET`
-   - `FRONTEND_ALLOWED_ORIGINS`（根据实际域名调整）
+### 文件使用场景
 
-5. **✅ 验证 .env 文件**
-   - 确保所有敏感信息都已设置
-   - 确保没有使用默认值
-   - 确保 `.env` 文件在 `.gitignore` 中（不会被提交到版本控制）
-
-### 生产环境安全最佳实践
-
-1. **更改默认密码**：所有默认密码必须更改
-2. **使用强 JWT Secret**：使用 `openssl rand -base64 32` 生成
-3. **限制端口暴露**：只暴露必要的端口
-4. **使用 HTTPS**：配置反向代理（如 Nginx）和 SSL 证书
-5. **定期备份**：设置数据库自动备份
-6. **资源限制**：已配置 CPU 和内存限制（见 `docker-compose.yml`）
-7. **日志轮转**：已配置日志轮转，防止日志无限增长
-8. **非 root 用户**：所有服务以非 root 用户运行
-
-### 环境变量安全
-
-- **不要将 `.env` 文件提交到版本控制**
-- 使用 Docker secrets 或外部密钥管理服务（如 AWS Secrets Manager）
-- 定期轮换敏感信息（JWT Secret、数据库密码等）
-- 使用不同的密码和密钥用于不同环境（开发、测试、生产）
+| 文件 | 本地开发 | 本地测试 | EC2 生产 | 说明 |
+|------|---------|---------|---------|------|
+| `docker-compose.yml` | ✅ | ✅ | ❌ | 本地完整环境 |
+| `docker-compose.dev.yml` | ✅ | ❌ | ❌ | 本地开发（热重载） |
+| `docker-compose.prod.yml` | ⚠️ | ⚠️ | ✅ | EC2 部署（自动生成） |
+| `dockerfiles/*/Dockerfile` | ✅ | ✅ | ✅ | 构建镜像 |
 
 ---
 
-## 📝 开发环境
+## 🎯 最佳实践
 
-开发环境配置（`docker-compose.dev.yml`）提供：
+### 1. 本地开发
 
-- **热重载**：代码更改自动重新加载
-- **开发工具**：Swagger UI、H2 Console 等
-- **调试支持**：可以附加调试器
+- ✅ 使用 `docker-compose.dev.yml` 进行开发（热重载）
+- ✅ 使用 `harbourx.sh` 脚本管理服务
+- ✅ 定期清理 Docker 资源（`./harbourx.sh docker clean`）
 
-启动开发环境：
+### 2. 生产部署
 
-```bash
-docker compose -f docker-compose.dev.yml up -d
-```
+- ✅ 使用 GitHub Actions CD 工作流（自动部署）
+- ✅ 配置变更通过 Git PR 管理
+- ✅ 敏感信息存储在 EC2 .env 文件（不在 Git 中）
 
----
+### 3. 安全性
 
-## 🔄 更新服务
+- ✅ 使用 IAM OIDC 认证（无需 SSH 密钥）
+- ✅ 敏感信息不提交到 Git
+- ✅ ECR 访问通过 IAM 控制
 
-### 更新单个服务
+### 4. 版本控制
 
-```bash
-# 重新构建并启动特定服务
-docker compose up -d --build [service-name]
-```
+- ✅ 所有配置在 GitHub 仓库中版本控制
+- ✅ docker-compose.prod.yml 在工作流中生成，确保一致性
+- ✅ 配置变更通过 PR 审查
 
-### 更新所有服务
+### 5. 可靠性
 
-```bash
-# 停止所有服务
-docker compose down
+- ✅ 自动安装 docker-compose（避免版本问题）
+- ✅ 智能回退机制（docker-compose → docker run）
+- ✅ 迁移锁机制（防止并发执行）
+- ✅ 健康检查验证（确保部署成功）
 
-# 拉取最新代码
-git pull
+### 6. 可观测性
 
-# 重新构建并启动
-docker compose up -d --build
-```
-
----
-
-## 📁 项目结构
-
-```
-项目根目录/
-├── harbourX/                  # Docker 配置文件
-│   ├── docker-compose.yml     # 生产环境配置
-│   ├── docker-compose.dev.yml # 开发环境配置
-│   ├── dockerfiles/           # Dockerfile 目录
-│   │   ├── backend/
-│   │   ├── frontend/
-│   │   └── ai-module/
-│   ├── harbourx.sh           # 统一管理脚本（所有操作）
-│   ├── .env.example           # 环境变量示例
-│   └── README.md              # 本文件
-├── HarbourX-Backend/          # Spring Boot 后端
-├── HarbourX-Frontend/         # React 前端
-└── AI-Module/                 # Node.js AI 服务
-```
-
-> 💡 **注意**：项目结构是可移植的。`harbourX` 文件夹应该与三个服务文件夹（`HarbourX-Backend`、`HarbourX-Frontend`、`AI-Module`）在同一父目录下。可以通过 `.env` 文件自定义目录名称。
+- ✅ CloudWatch 日志（SSM 命令执行）
+- ✅ GitHub Actions 日志（构建和部署过程）
+- ✅ 容器健康检查（应用状态）
 
 ---
 
-## 🌐 AWS EC2 部署
+## 🔗 相关资源
 
-### 快速部署
+### GitHub 仓库
 
-#### 方法 1：使用统一管理脚本（推荐）
+- **Backend**: https://github.com/HarbourX-Team/HarbourX-Backend
+- **Frontend**: https://github.com/HarbourX-Team/HarbourX-Frontend
+
+### AWS 资源
+
+- **ECR Registry**: `869894983085.dkr.ecr.ap-southeast-2.amazonaws.com`
+- **ECR Repository**: `harbourx-backend`
+- **IAM Role**: `github-actions-harbourx-backend-cd`
+- **CloudWatch Log Group**: `/aws/ssm/harbourx-backend-deploy`
+- **Region**: `ap-southeast-2`
+
+### 本地管理脚本
+
+- **harbourx.sh**: 本地 Docker 和部署管理脚本
+- **使用**: `./harbourx.sh help` 查看所有命令
+
+### 相关文档
+
+- **[migrationScripts/README.md](./migrationScripts/README.md)** - 数据迁移脚本说明
+
+---
+
+## 📝 更新历史
+
+- **2025-01-09**: 
+  - 迁移到 SSM 部署方式
+  - 移除 SSH 依赖
+  - 实现 IAM OIDC 认证
+  - 自动生成 docker-compose.prod.yml
+  - 自动安装 docker-compose
+  - 添加智能回退机制
+  - 统一文档结构
+
+---
+
+## 🆘 获取帮助
+
+### 查看帮助信息
 
 ```bash
-# 1. 设置环境变量（可选，脚本有默认值）
-export EC2_HOST=13.54.207.94
-export EC2_USER=ec2-user
-export SSH_KEY=~/.ssh/harbourX-demo-key-pair.pem
+# harbourx.sh 脚本帮助
+./harbourx.sh help
 
-# 2. 确保 PEM 文件权限正确
-chmod 400 ~/.ssh/harbourX-demo-key-pair.pem
-
-# 3. 部署到 EC2
-cd harbourX
-./harbourx.sh deploy deploy
-```
-
-#### 方法 2：获取 EC2 IP 并部署
-
-```bash
-# 获取 EC2 公共 IP
-./harbourx.sh deploy ip
-
-# 或使用 AWS CLI
-aws ec2 describe-instances \
-  --instance-ids i-0a47d93520b410e85 \
-  --region ap-southeast-2 \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' \
-  --output text
-
-# 设置并部署
-export EC2_HOST=<你的公共IP>
-./harbourx.sh deploy deploy
-```
-
-#### 其他部署相关命令
-
-```bash
-# SSH 连接到 EC2
-./harbourx.sh deploy ssh
-
-# 在 EC2 上设置 Git 仓库
-./harbourx.sh deploy setup-git
-
-# 在云端创建 Broker
-./harbourx.sh deploy create-broker
-
-# 查看当前配置
+# 查看配置
 ./harbourx.sh config env
 ```
 
-### EC2 实例信息
-
-- **实例 ID**: `i-0a47d93520b410e85`
-- **公网 IP**: `13.54.207.94`
-- **区域**: `ap-southeast-2` (Sydney)
-- **用户**: `ec2-user`
-
-### 手动部署步骤
-
-#### 步骤 1：准备 EC2 实例
+### 日志查看
 
 ```bash
-# SSH 连接到 EC2
-ssh -i ~/.ssh/harbourX-demo-key-pair.pem ec2-user@13.54.207.94
+# 查看所有服务日志
+./harbourx.sh docker logs
 
-# 安装 Docker
-sudo yum update -y
-sudo yum install -y docker
-sudo systemctl enable docker
-sudo systemctl start docker
-sudo usermod -aG docker ec2-user
+# 查看特定服务日志
+./harbourx.sh docker logs backend
+./harbourx.sh docker logs frontend
 
-# 安装 Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# 重新登录以应用 docker 组权限
-exit
-ssh -i ~/.ssh/harbourX-demo-key-pair.pem ec2-user@13.54.207.94
+# 使用 Docker Compose
+docker compose logs -f backend
 ```
-
-#### 步骤 2：上传项目文件
-
-部署脚本会自动处理，或手动执行：
-
-```bash
-# 在本地打包项目
-cd harbourX
-tar -czf harbourx-deploy.tar.gz \
-    --exclude='.git' \
-    --exclude='node_modules' \
-    docker-compose.yml \
-    dockerfiles/ \
-    harbourx.sh
-
-# 上传到 EC2
-scp -i ~/.ssh/harbourX-demo-key-pair.pem harbourx-deploy.tar.gz \
-    ec2-user@13.54.207.94:/opt/
-
-# SSH 到 EC2 并解压
-ssh -i ~/.ssh/harbourX-demo-key-pair.pem ec2-user@13.54.207.94
-sudo mkdir -p /opt/harbourx
-sudo tar -xzf /opt/harbourx-deploy.tar.gz -C /opt/harbourx
-sudo chown -R ec2-user:ec2-user /opt/harbourx
-cd /opt/harbourx
-```
-
-#### 步骤 3：配置环境变量
-
-```bash
-# 在 EC2 上创建 .env 文件
-cd /opt/harbourx
-cat > .env << 'EOF'
-JWT_SECRET=your-super-secret-jwt-key-change-this
-DB_IP=postgres
-DB_PORT=5432
-DB_USER=harbourx
-DB_PASS=harbourx_password
-FRONTEND_ALLOWED_ORIGINS=http://13.54.207.94
-EOF
-
-# 配置 AI-Module 环境变量
-cd /opt/AI-Module
-cat > .env << 'EOF'
-GOOGLE_AI_API_KEY=your_google_ai_api_key
-OPENAI_API_KEY=your_openai_api_key
-PORT=3000
-HOST=0.0.0.0
-NODE_ENV=production
-EOF
-```
-
-#### 步骤 3.5：配置 AWS S3（可选）
-
-如果需要使用 AWS S3 存储文件，需要配置以下信息：
-
-**1. 创建 S3 Bucket**
-
-1. 登录 [AWS Console](https://ap-southeast-2.console.aws.amazon.com/s3/)
-2. 进入 S3 服务
-3. 点击 **Create bucket**
-4. 填写配置：
-   - **Bucket name**: `harbourx-rcti`（或您自定义的名称）
-   - **Region**: `ap-southeast-2`（Sydney，或您选择的区域）
-   - 其他设置保持默认或根据需要调整
-5. 点击 **Create bucket**
-
-**2. 创建 IAM 用户和访问密钥**
-
-1. 进入 [IAM Console](https://console.aws.amazon.com/iam/)
-2. 点击 **Users** → **Create user**
-3. 输入用户名（如 `harbourx-s3-user`）
-4. 选择 **Provide user access to the AWS Management Console**（可选）
-5. 点击 **Next**
-6. 在权限设置中，选择 **Attach policies directly**
-7. 搜索并选择 `AmazonS3FullAccess`（或创建自定义策略，仅授予特定 bucket 的访问权限）
-8. 点击 **Next** → **Create user**
-
-**3. 创建访问密钥（Access Keys）**
-
-1. 在用户列表中，点击刚创建的用户
-2. 切换到 **Security credentials** 标签
-3. 在 **Access keys** 部分，点击 **Create access key**
-4. 选择使用场景（如 **Application running outside AWS**）
-5. 点击 **Next** → **Create access key**
-6. **重要**：立即复制并保存以下信息（只显示一次）：
-   - **Access key ID**（例如：`AKIAIOSFODNN7EXAMPLE`）
-   - **Secret access key**（例如：`wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`）
-
-**4. 获取配置信息**
-
-现在您有了所有需要的 S3 配置信息：
-
-```yaml
-aws:
-  s3:
-    access-key: YOUR_ACCESS_KEY # 从步骤 3 获取的 Access key ID
-    secret-key: YOUR_SECRET_KEY # 从步骤 3 获取的 Secret access key
-    region: ap-southeast-2 # S3 bucket 所在的区域
-    bucket-name: harbourx-rcti # 从步骤 1 创建的 bucket 名称
-```
-
-**5. 配置到环境变量**
-
-将 S3 配置添加到 AI-Module 的 `.env` 文件：
-
-```bash
-cd /opt/AI-Module
-cat >> .env << 'EOF'
-# AWS S3 Configuration
-AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
-AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
-AWS_REGION=ap-southeast-2
-AWS_S3_BUCKET_NAME=harbourx-rcti
-EOF
-```
-
-**安全提示**：
-
-- 不要将访问密钥提交到 Git 仓库
-- 使用环境变量或 AWS Secrets Manager 存储敏感信息
-- 定期轮换访问密钥
-- 使用最小权限原则（仅授予必要的 S3 权限）
-
-#### 步骤 4：启动服务
-
-```bash
-cd /opt/harbourx
-docker compose up -d --build
-
-# 查看服务状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f
-```
-
-### 安全组配置
-
-确保 EC2 安全组已配置以下端口：
-
-| 端口 | 协议 | 说明            | 来源             |
-| ---- | ---- | --------------- | ---------------- |
-| 22   | TCP  | SSH             | 你的 IP 地址     |
-| 80   | TCP  | HTTP (Frontend) | 0.0.0.0/0        |
-| 8080 | TCP  | Backend API     | 0.0.0.0/0        |
-| 3000 | TCP  | AI Module       | 0.0.0.0/0        |
-| 5433 | TCP  | PostgreSQL      | 可选，仅内部访问 |
-
-### EC2 访问地址
-
-部署成功后，可以通过以下地址访问：
-
-- **Frontend**: `http://13.54.207.94/`
-- **Backend API**: `http://13.54.207.94:8080`
-- **Backend Swagger**: `http://13.54.207.94:8080/swagger-ui.html`
-- **AI Module**: `http://13.54.207.94:3000`
-- **AI Health**: `http://13.54.207.94:3000/health`
-
-### EC2 常用操作
-
-```bash
-# SSH 到 EC2
-ssh -i ~/.ssh/harbourX-demo-key-pair.pem ec2-user@13.54.207.94
-
-# 查看服务状态
-cd /opt/harbourx
-docker compose ps
-
-# 查看日志
-docker compose logs -f [service-name]
-
-# 重启服务
-docker compose restart [service-name]
-
-# 更新服务
-cd /opt/harbourx
-docker compose down
-cd /opt/HarbourX-Frontend  # 或 Backend/AI-Module
-git pull
-cd /opt/harbourx
-docker compose up -d --build
-```
-
----
-
-## 🔄 CI/CD 工作流程
-
-### 概述
-
-HarbourX 项目使用 **GitHub Actions** 实现 CI/CD，包含三个服务：
-
-- **Frontend** (React + Vite)
-- **Backend** (Spring Boot)
-- **AI-Module** (Node.js + Express)
-
-### CI (Continuous Integration) - 持续集成
-
-#### 触发条件
-
-1. **Pull Request** - 创建或更新 PR 时自动触发
-2. **Push 到分支** - Push 到 main, develop, feature/**, ci/** 分支
-3. **手动触发** - 通过 `workflow_dispatch` 手动运行
-
-#### Frontend CI 流程
-
-```yaml
-触发: PR 创建/更新 或 Push 到分支
-↓
-并行执行 4 个 Job:
-├── 1. Lint & Code Quality
-│   ├── 安装依赖 (npm ci)
-│   ├── ESLint 代码检查
-│   ├── 检查未使用的依赖
-│   └── 安全漏洞扫描 (npm audit)
-│
-├── 2. TypeScript Type Check
-│   ├── 安装依赖
-│   └── TypeScript 类型检查 (tsc --noEmit)
-│
-├── 3. Build Application
-│   ├── 安装依赖
-│   ├── 构建项目 (npm run build)
-│   ├── 上传构建产物
-│   └── 分析构建大小
-│
-└── 4. Run Tests
-    ├── 安装依赖
-    ├── 运行测试并生成覆盖率 (npm run test:coverage)
-    ├── 上传覆盖率报告到 Codecov
-    └── 在 PR 中评论覆盖率
-```
-
-#### Backend CI 流程
-
-```yaml
-触发: PR 创建/更新 或 手动触发
-↓
-执行 Job:
-├── Checkout 代码
-├── 设置 JDK 21
-├── 运行静态代码检查 (Checkstyle + Spotless)
-└── 运行 Maven 验证 (包括测试)
-    └── 上传 JaCoCo 覆盖率报告
-```
-
-#### AI-Module CI 流程
-
-```yaml
-触发: Push 到 main/develop 或 PR
-↓
-执行 Job:
-├── Checkout 代码
-├── 设置 Node.js 20
-├── 设置 pnpm
-├── 安装依赖 (pnpm install --frozen-lockfile)
-├── 运行测试 (pnpm test)
-├── 构建项目 (pnpm build)
-└── 上传构建产物
-```
-
-### CD (Continuous Deployment) - 持续部署
-
-#### 触发条件
-
-1. **Push 到 main 分支** - 代码合并到 main 后自动触发
-2. **路径过滤** - 只有相关文件变更时才触发
-   - Frontend: `HarbourX-Frontend/**`, `harbourX/dockerfiles/frontend/**`
-   - Backend: `HarbourX-Backend/**`, `harbourX/dockerfiles/backend/**`
-   - AI-Module: `AI-Module/**`, `harbourX/dockerfiles/ai-module/**`
-3. **手动触发** - 通过 `workflow_dispatch` 手动部署
-
-#### 部署流程（三个服务相同）
-
-```yaml
-触发: Push 到 main (相关路径变更)
-↓
-执行部署 Job:
-├── 1. Checkout 代码
-│
-├── 2. SSH 连接到 EC2 实例
-│   └── 使用 GitHub Secrets:
-│       - EC2_HOST (13.54.207.94)
-│       - EC2_USER (ec2-user)
-│       - EC2_SSH_KEY (SSH 私钥)
-│
-├── 3. 停止现有服务
-│   └── docker-compose stop <service> || true
-│
-├── 4. 更新代码
-│   └── cd /opt/<Service>
-│       git fetch origin
-│       git reset --hard origin/main
-│       git clean -fd
-│
-├── 5. 重新构建并启动
-│   └── cd /opt/harbourx
-│       docker-compose up -d --build <service>
-│
-├── 6. 等待服务启动
-│   └── sleep 10-30 秒（根据服务类型）
-│
-├── 7. 检查服务状态
-│   ├── docker-compose ps <service>
-│   └── docker-compose logs <service> --tail=20
-│
-└── 8. 生成部署摘要
-    └── 在 GitHub Actions 中显示部署信息
-```
-
-#### 三个服务的部署对比
-
-| 服务          | 停止命令                        | 代码目录                 | 等待时间 | 访问地址                   |
-| ------------- | ------------------------------- | ------------------------ | -------- | -------------------------- |
-| **Frontend**  | `docker-compose stop frontend`  | `/opt/HarbourX-Frontend` | 10 秒    | `http://13.54.207.94/`     |
-| **Backend**   | `docker-compose stop backend`   | `/opt/HarbourX-Backend`  | 30 秒    | `http://13.54.207.94:8080` |
-| **AI-Module** | `docker-compose stop ai-module` | `/opt/AI-Module`         | 15 秒    | `http://13.54.207.94:3000` |
-
-### 架构图
-
-```
-开发者
-  │
-  ├─→ 创建 Feature Branch
-  │     │
-  │     └─→ 提交代码
-  │           │
-  │           └─→ 创建 Pull Request
-  │                 │
-  │                 └─→ 🔍 CI 自动运行
-  │                       ├─→ Lint 检查
-  │                       ├─→ Type Check
-  │                       ├─→ Build
-  │                       └─→ Tests
-  │
-  └─→ 合并到 main 分支
-        │
-        └─→ 🚀 CD 自动触发
-              │
-              └─→ 部署到 EC2
-                    │
-                    ├─→ 更新代码
-                    ├─→ 停止旧服务
-                    ├─→ 构建 Docker 镜像
-                    └─→ 启动新服务
-```
-
----
-
-## 🔐 GitHub CI/CD 配置
-
-### 配置 GitHub Secrets
-
-**重要**: 需要在**每个仓库**（Frontend、Backend、AI-Module）中分别配置 Secrets。
-
-#### 必需 Secrets
-
-1. **EC2_HOST**: EC2 实例的公网 IP 地址
-
-   - 值: `13.54.207.94`
-
-2. **EC2_USER**: EC2 实例的用户名（可选，默认为 `ec2-user`）
-
-   - Amazon Linux: `ec2-user`
-   - Ubuntu: `ubuntu`
-
-3. **EC2_SSH_KEY**: SSH 私钥内容（PEM 文件的完整内容）
-   - 获取方式: `cat ~/.ssh/harbourX-demo-key-pair.pem`
-   - 复制**整个文件内容**，包括 `-----BEGIN RSA PRIVATE KEY-----` 和 `-----END RSA PRIVATE KEY-----`
-
-#### 配置步骤
-
-**方法 1: 通过 GitHub Web 界面**
-
-1. 进入 GitHub 仓库（例如 `HarbourX-Team/HarbourX-Frontend`）
-2. 点击 **Settings** → **Secrets and variables** → **Actions**
-3. 点击 **New repository secret**
-4. 依次添加三个 secrets：
-   - Name: `EC2_HOST`, Value: `13.54.207.94`
-   - Name: `EC2_USER`, Value: `ec2-user`（可选）
-   - Name: `EC2_SSH_KEY`, Value: `<粘贴完整的 PEM 文件内容>`
-5. 重复上述步骤，为其他两个仓库（Backend、AI-Module）也配置相同的 secrets
-
-**方法 2: 使用 GitHub CLI（推荐批量配置）**
-
-```bash
-# 为每个仓库配置 secrets
-gh secret set EC2_HOST --body "13.54.207.94" --repo HarbourX-Team/HarbourX-Frontend
-gh secret set EC2_USER --body "ec2-user" --repo HarbourX-Team/HarbourX-Frontend
-gh secret set EC2_SSH_KEY --body "$(cat ~/.ssh/harbourX-demo-key-pair.pem)" --repo HarbourX-Team/HarbourX-Frontend
-
-gh secret set EC2_HOST --body "13.54.207.94" --repo HarbourX-Team/HarbourX-Backend
-gh secret set EC2_USER --body "ec2-user" --repo HarbourX-Team/HarbourX-Backend
-gh secret set EC2_SSH_KEY --body "$(cat ~/.ssh/harbourX-demo-key-pair.pem)" --repo HarbourX-Team/HarbourX-Backend
-
-gh secret set EC2_HOST --body "13.54.207.94" --repo HaimoneyTeam/AI-Module
-gh secret set EC2_USER --body "ec2-user" --repo HaimoneyTeam/AI-Module
-gh secret set EC2_SSH_KEY --body "$(cat ~/.ssh/harbourX-demo-key-pair.pem)" --repo HaimoneyTeam/AI-Module
-```
-
-### Workflow 文件位置
-
-```
-HarbourX-Frontend/
-  └── .github/workflows/
-      ├── ci.yml    # CI workflow
-      └── cd.yml    # CD workflow
-
-HarbourX-Backend/
-  └── .github/workflows/
-      ├── ci.yml    # CI workflow
-      └── cd.yml    # CD workflow
-
-AI-Module/
-  └── .github/workflows/
-      ├── ci.yml    # CI workflow
-      └── cd.yml    # CD workflow
-```
-
-### EC2 前置要求
-
-在 EC2 实例上需要：
-
-1. **安装 Git**:
-
-   ```bash
-   sudo yum install git -y  # Amazon Linux
-   ```
-
-2. **初始化 Git 仓库**:
-
-   运行本地脚本自动设置：
-
-   ```bash
-   cd harbourX
-   ./harbourx.sh deploy setup-git
-   ```
-
-   或手动在 EC2 上执行：
-
-   ```bash
-   cd /opt
-   sudo git clone https://github.com/HarbourX-Team/HarbourX-Frontend.git
-   sudo git clone https://github.com/HarbourX-Team/HarbourX-Backend.git
-   sudo git clone https://github.com/HaimoneyTeam/AI-Module.git
-   sudo chown -R ec2-user:ec2-user HarbourX-* AI-Module
-   ```
-
-3. **配置 Git 访问（如果仓库是私有的）**:
-
-   **选项 A: 使用 Personal Access Token (推荐)**
-
-   ```bash
-   # 在 EC2 上为每个仓库配置
-   cd /opt/HarbourX-Frontend
-   git remote set-url origin https://<YOUR_TOKEN>@github.com/HarbourX-Team/HarbourX-Frontend.git
-
-   cd /opt/HarbourX-Backend
-   git remote set-url origin https://<YOUR_TOKEN>@github.com/HarbourX-Team/HarbourX-Backend.git
-
-   cd /opt/AI-Module
-   git remote set-url origin https://<YOUR_TOKEN>@github.com/HaimoneyTeam/AI-Module.git
-   ```
-
-### 使用说明
-
-#### 自动部署
-
-1. 提交代码到 `main` 分支
-2. GitHub Actions 自动触发 CI
-3. CI 通过后，CD workflow 自动部署到 EC2
-
-#### 手动部署
-
-1. 进入 GitHub 仓库的 **Actions** 标签页
-2. 选择对应的 CD workflow（如 "Frontend CD"）
-3. 点击 **Run workflow**
-4. 选择分支并点击 **Run workflow**
-
-#### 查看部署状态
-
-- 在 **Actions** 标签页查看 workflow 运行状态
-- 点击具体的 workflow run 查看详细日志
-- 部署成功后，在 Summary 中查看部署信息
-
-### CI/CD 故障排查
-
-#### CI 失败
-
-1. 检查 GitHub Actions 日志
-2. 查看具体的失败步骤
-3. 修复问题后重新提交
-
-#### CD 部署失败
-
-1. **检查 Secrets 配置**:
-
-   - 确认 `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` 都已正确设置
-
-2. **检查 SSH 连接**:
-
-   - 验证 SSH key 权限和格式
-   - 确认 EC2 安全组允许 SSH (端口 22)
-
-3. **检查 EC2 资源**:
-
-   - 确认磁盘空间充足
-   - 检查 Docker 服务是否运行
-   - 查看 EC2 上的 docker-compose 日志
-
-4. **检查代码拉取**:
-   - 确认仓库是公开的，或已配置访问权限
-   - 检查 `/opt/` 目录权限
-
-#### 服务启动失败
-
-1. 查看 GitHub Actions 日志中的错误信息
-2. SSH 到 EC2 检查服务状态:
-   ```bash
-   cd /opt/harbourx
-   docker-compose ps
-   docker-compose logs <service-name>
-   ```
-
-### 工作流程示例
-
-#### 典型开发流程
-
-1. **开发功能**:
-
-   ```bash
-   git checkout -b feature/new-feature
-   # 开发代码...
-   git commit -m "feat: add new feature"
-   git push origin feature/new-feature
-   ```
-
-2. **创建 PR**:
-
-   - CI workflow 自动运行测试
-   - 通过后合并到 `main` 分支
-
-3. **自动部署**:
-   - 合并到 `main` 后，CD workflow 自动触发
-   - 代码自动部署到 EC2
-
-#### 紧急修复流程
-
-1. **直接修复**:
-
-   ```bash
-   git checkout main
-   git pull
-   # 修复代码...
-   git commit -m "fix: urgent fix"
-   git push origin main
-   ```
-
-2. **自动部署**:
-   - CD workflow 自动部署修复
-
----
-
-## ⚠️ 注意事项
-
-1. **首次启动**：首次启动可能需要几分钟来构建镜像和初始化数据库
-2. **数据库数据**：使用 `docker compose down -v` 会删除所有数据库数据
-3. **端口冲突**：确保端口 80、8080、3000、5433 未被占用
-4. **环境变量**：AI 模块需要 `.env` 文件（在 `AI-Module/.env`）
-5. **日志查看**：使用 `Ctrl+C` 退出日志查看模式
-6. **路径过滤**：CD 只在相关文件变更时触发，避免不必要的部署
-7. **服务启动时间**：Backend 需要 30 秒启动时间（Spring Boot）
-8. **数据库迁移**：Backend 部署时会自动运行 Liquibase 迁移
-
----
-
-## 📚 更多资源
-
-- [Docker 官方文档](https://docs.docker.com/)
-- [Docker Compose 文档](https://docs.docker.com/compose/)
-- [GitHub Actions 文档](https://docs.github.com/en/actions)
-- [AWS EC2 文档](https://docs.aws.amazon.com/ec2/)
-- [Spring Boot Docker 指南](https://spring.io/guides/gs/spring-boot-docker/)
-- [React Docker 最佳实践](https://mherman.org/blog/dockerizing-a-react-app/)
-
----
-
-## 📄 License
-
-本项目属于 HarbourX 系统的一部分。
